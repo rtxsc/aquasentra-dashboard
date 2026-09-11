@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AQUASENTRA Telemetry Dashboard — Multi-CSV (patched)</title>
+  <title>AQUASENTRA Telemetry Dashboard — Patched</title>
 
   <!-- Tailwind CSS (dev CDN ok for testing) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -31,7 +31,7 @@
 </head>
 <body class="p-4 md:p-8">
   <div class="max-w-7xl mx-auto space-y-6">
-    <!-- (header/kpi/ui unchanged) -->
+    <!-- Header -->
     <header class="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-700 gap-4">
       <div>
         <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-white">🌊 AQUASENTRA Telemetry Station</h1>
@@ -125,16 +125,14 @@
   </div>
 
 <script>
-/* CONFIG: update your CSV URL/columns here */
+/* CONFIG: set to your published CSV */
 const SOURCES = [
   {
     name: "Sensor N4P4",
-    type: "timeseries",
-    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQWU5MBW0yYFy6v4Vmzlc4lDB1YvDJbTGeEOM6NJ2MmnFqgF8H3UFjNnolRMQe-MkUzjG8nw3ToHGzr/pubhtml?gid=0&single=true",
+    type: "full",
+    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQWU5MBW0yYFy6v4Vmzlc4lDB1YvDJbTGeEOM6NJ2MmnFqgF8H3UFjNnolRMQe-MkUzjG8nw3ToHGzr/pub?gid=0&single=true&output=csv",
     tsCol: "timestamp",
-    valueCol: "value",
-    latCol: "",
-    lonCol: "",
+    columns: { ph: "ph", ntu: "ntu", temp: "temp", ec: "ec", tss: "tss", vsys: "vsys" },
     color: "#60a5fa"
   }
 ];
@@ -170,7 +168,7 @@ function fetchCsv(url) {
       download: true,
       header: true,
       skipEmptyLines: true,
-      dynamicTyping: false, // parse numbers manually after sanitation
+      dynamicTyping: false,
       complete: function(results) {
         if (results && results.data) resolve(results.data);
         else reject(new Error('No data'));
@@ -185,19 +183,16 @@ function normalizeTimestamp(raw) {
   if (raw === null || raw === undefined || raw === "") return null;
   if (raw instanceof Date) return isNaN(raw) ? null : raw;
 
-  // numeric-like strings
   const trimmed = (typeof raw === 'string') ? raw.trim() : raw;
   const maybeNum = (trimmed !== '' && !isNaN(Number(trimmed))) ? Number(trimmed) : null;
   if (typeof raw === 'number' || maybeNum !== null) {
     const n = maybeNum !== null ? maybeNum : raw;
     if (n > 1e12) return new Date(n);            // ms
-    if (n > 1e9 && n < 1e12) return new Date(n * 1000); // seconds -> ms
-    // fallback: try Date constructor with the numeric value
+    if (n > 1e9 && n < 1e12) return new Date(n * 1000); // sec -> ms
     const d = new Date(n);
     return isNaN(d) ? null : d;
   }
 
-  // ISO-ish string
   const d1 = new Date(raw);
   if (!isNaN(d1)) return d1;
   const d2 = new Date(raw.replace(' ', 'T'));
@@ -205,47 +200,80 @@ function normalizeTimestamp(raw) {
   return null;
 }
 
-/* Sanitize & filter telemetry rows for a timeseries CSV */
-function sanitizeTimeSeriesRows(rows, tsKey, valueKey) {
+/* Simple safe number conversion */
+function safeNum(v) {
+  if (v === null || v === undefined || v === '') return NaN;
+  const n = Number(String(v).replace(/[, ]+/g,''));
+  return isNaN(n) ? NaN : n;
+}
+
+/* Sanitize full-metrics rows (timestamp + many cols) */
+function sanitizeFullRows(rows, tsKey, cols) {
   if (!rows || !rows.length) return [];
 
   const parsed = rows.map(r => {
     const t = normalizeTimestamp(r[tsKey]);
+    const ph = safeNum(r[cols.ph]);
+    const ntu = safeNum(r[cols.ntu]);
+    const temp = safeNum(r[cols.temp]);
+    const ec = safeNum(r[cols.ec]);
+    const tss = safeNum(r[cols.tss]);
+    const vsys = safeNum(r[cols.vsys]);
+    return { raw: r, t, ph, ntu, temp, ec, tss, vsys };
+  }).filter(p => p.t !== null);
+
+  if (!parsed.length) return [];
+
+  parsed.sort((a,b) => a.t - b.t);
+
+  // time window guard
+  const now = Date.now();
+  const minAllowed = now - (1000 * 60 * 60 * 24 * 365 * 10); // 10y
+  const maxAllowed = now + (1000 * 60 * 60 * 24 * 365 * 2);  // 2y
+  const filtered = parsed.filter(p => p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed);
+
+  // plausibility filters - tweak to your needs
+  const plausible = filtered.filter(p => {
+    if (!isNaN(p.ph) && (p.ph < 0 || p.ph > 14)) return false;
+    if (!isNaN(p.temp) && (p.temp < -20 || p.temp > 60)) return false;
+    if (!isNaN(p.ec) && (p.ec < 0 || p.ec > 2000)) return false;
+    // drop negative NTU (sensor error) - change to clamp if you prefer
+    if (!isNaN(p.ntu) && (p.ntu < 0 || p.ntu > 2000)) return false;
+    if (!isNaN(p.tss) && (p.tss < 0 || p.tss > 10000)) return false;
+    if (!isNaN(p.vsys) && (p.vsys < 0 || p.vsys > 10)) return false;
+    return true;
+  });
+
+  return plausible;
+}
+
+/* Sanitize timeseries rows (single value) - kept for backward compatibility */
+function sanitizeTimeSeriesRows(rows, tsKey, valueKey) {
+  if (!rows || !rows.length) return [];
+  const parsed = rows.map(r => {
+    const t = normalizeTimestamp(r[tsKey]);
     const vRaw = r[valueKey];
-    const v = (vRaw === null || vRaw === undefined || vRaw === '') ? NaN : Number(String(vRaw).replace(/[, ]+/g,'')); // basic cleaning
+    const v = (vRaw === null || vRaw === undefined || vRaw === '') ? NaN : Number(String(vRaw).replace(/[, ]+/g,''));
     return { raw: r, t, v };
   }).filter(p => p.t !== null && !isNaN(p.v));
 
   if (!parsed.length) return [];
-
-  // Sort by time
   parsed.sort((a,b) => a.t - b.t);
-
-  // Remove extreme outliers outside a reasonable window
   const now = Date.now();
-  const minAllowed = now - (1000 * 60 * 60 * 24 * 365 * 10); // 10 years ago
-  const maxAllowed = now + (1000 * 60 * 60 * 24 * 365 * 2);  // 2 years in future
-  const filtered = parsed.filter(p => (p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed));
-
-  return filtered;
+  const minAllowed = now - (1000 * 60 * 60 * 24 * 365 * 10);
+  const maxAllowed = now + (1000 * 60 * 60 * 24 * 365 * 2);
+  return parsed.filter(p => p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed);
 }
 
 /* Choose Chart.js time unit and tick limits */
 function chooseTimeUnitAndTicks(minTs, maxTs) {
   const diffMs = maxTs - minTs;
   const diffDays = diffMs / (1000 * 60 * 60 * 24);
-  if (diffDays <= 1) return { unit: 'hour', maxTicks: 12, stepSize: null };
-  if (diffDays <= 7) return { unit: 'day', maxTicks: 14, stepSize: null };
-  if (diffDays <= 60) return { unit: 'week', maxTicks: 12, stepSize: null };
-  if (diffDays <= 365) return { unit: 'month', maxTicks: 12, stepSize: null };
-  return { unit: 'year', maxTicks: 10, stepSize: null };
-}
-
-/* simple safe number conversion */
-function safeNum(v) {
-  if (v === null || v === undefined || v === '') return NaN;
-  const n = Number(String(v).replace(/[, ]+/g,''));
-  return isNaN(n) ? NaN : n;
+  if (diffDays <= 1) return { unit: 'hour', maxTicks: 12 };
+  if (diffDays <= 7) return { unit: 'day', maxTicks: 14 };
+  if (diffDays <= 60) return { unit: 'week', maxTicks: 12 };
+  if (diffDays <= 365) return { unit: 'month', maxTicks: 12 };
+  return { unit: 'year', maxTicks: 10 };
 }
 
 /* KPI helpers */
@@ -285,7 +313,7 @@ async function loadAll() {
   }
 }
 
-/* Results handling (timeseries only / full left mostly unchanged but guarded) */
+/* Results handling */
 function handleResults(results) {
   const fullSrc = results.find(r => !r.error && r.source.type === 'full');
   const timeseriesResults = results.filter(r => !r.error && r.source.type === 'timeseries');
@@ -300,36 +328,49 @@ function handleResults(results) {
   const mapPoints = [];
 
   if (fullSrc) {
-    // not used in your current config, but preserved with guards
     const s = fullSrc.source;
-    const rows = fullSrc.rows.filter(r => r[s.tsCol]);
-    const parsed = rows.map(r => ({ raw: r, t: normalizeTimestamp(r[s.tsCol]) })).filter(p => p.t !== null).sort((a,b)=>a.t-b.t).map(r=>({...r.raw, _t:r.t}));
-    if (parsed.length) {
-      const step = Math.ceil(parsed.length / 500);
-      const sampled = parsed.filter((_,i)=> i%step===0 || i===parsed.length-1);
-      const labels = sampled.map(r => r._t);
-      const phs = sampled.map(r => safeNum(r[s.columns.ph]));
-      const ntus = sampled.map(r => safeNum(r[s.columns.ntu]));
-      const temps = sampled.map(r => safeNum(r[s.columns.temp]));
-      const ecs = sampled.map(r => safeNum(r[s.columns.ec]));
-      const vsys = sampled.map(r => safeNum(r[s.columns.vsys]));
-      const last = parsed[parsed.length - 1];
-      updateKPIsFromFullRow(last, s.columns);
-      renderMainCharts(labels, phs, ntus, temps, ecs, vsys);
-    } else {
+    const cleaned = sanitizeFullRows(fullSrc.rows, s.tsCol, s.columns);
+    if (!cleaned.length) {
       clearKPIs();
+    } else {
+      const step = Math.ceil(cleaned.length / 500) || 1;
+      const sampled = cleaned.filter((_,i) => i % step === 0 || i === cleaned.length - 1);
+      const labels = sampled.map(r => r.t);
+      const phs = sampled.map(r => isNaN(r.ph) ? null : r.ph);
+      const ntus = sampled.map(r => isNaN(r.ntu) ? null : r.ntu);
+      const temps = sampled.map(r => isNaN(r.temp) ? null : r.temp);
+      const ecs = sampled.map(r => isNaN(r.ec) ? null : r.ec);
+      const vsys = sampled.map(r => isNaN(r.vsys) ? null : r.vsys);
+
+      // KPIs: use last cleaned raw row
+      const last = cleaned[cleaned.length - 1];
+      if (last) updateKPIsFromFullRow(last.raw, s.columns);
+
+      // collect lat/lon if present
+      if (s.columns.lat && s.columns.lon) {
+        cleaned.forEach(c => {
+          const lat = parseFloat(c.raw[s.columns.lat]);
+          const lon = parseFloat(c.raw[s.columns.lon]);
+          if (!isNaN(lat) && !isNaN(lon)) {
+            latlonDetected = true;
+            mapPoints.push({ lat, lon, ts: c.t, source: s.name });
+          }
+        });
+      }
+
+      renderMainCharts(labels, phs, ntus, temps, ecs, vsys);
     }
   } else {
     clearKPIs();
   }
 
+  // timeseries (not used in your current file but supported)
   if (timeseriesResults.length) {
     const combinedDatasets = [];
     timeseriesResults.forEach((res, idx) => {
       const s = res.source;
       const cleaned = sanitizeTimeSeriesRows(res.rows, s.tsCol, s.valueCol);
       if (!cleaned.length) {
-        // show placeholder card
         const card = document.createElement('div');
         card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700 placeholder';
         card.innerHTML = `<div class="text-sm text-slate-200 font-medium">${s.name}</div><div class="text-xs text-slate-400 mt-2">No valid data points to plot</div>`;
@@ -337,11 +378,9 @@ function handleResults(results) {
         return;
       }
 
-      // prepare mini chart data (labels as Date objects, values)
       const labels = cleaned.map(p => p.t);
       const values = cleaned.map(p => p.v);
 
-      // create card and canvas
       const card = document.createElement('div');
       card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700';
       const canvasId = 'miniChart_' + idx;
@@ -349,8 +388,6 @@ function handleResults(results) {
       smallContainer.appendChild(card);
 
       const ctx = document.getElementById(canvasId).getContext('2d');
-
-      // choose time unit for the mini chart
       const minTs = Math.min(...labels.map(d=>d.getTime()));
       const maxTs = Math.max(...labels.map(d=>d.getTime()));
       const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
@@ -369,11 +406,9 @@ function handleResults(results) {
       });
       smallCharts.push(miniChart);
 
-      // combined dataset: use array of {x: Date, y: number}
       const combinedData = cleaned.map(p => ({ x: p.t, y: p.v }));
       combinedDatasets.push({ label: s.name, data: combinedData, borderColor: s.color || '#60a5fa', tension: 0.2, fill: false });
 
-      // lat/lon collection
       if (s.latCol && s.lonCol) {
         cleaned.forEach(p => {
           const lat = parseFloat(p.raw[s.latCol]);
@@ -386,14 +421,8 @@ function handleResults(results) {
       }
     });
 
-    // render combined overlay chart if we have datasets
-    if (combinedDatasets.length) {
-      renderCombinedChart(combinedDatasets);
-    } else {
-      if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
-    }
+    if (combinedDatasets.length) renderCombinedChart(combinedDatasets);
   } else {
-    // clear combined chart and small container
     if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
     document.getElementById('smallChartsContainer').innerHTML = '';
   }
@@ -409,7 +438,7 @@ function handleResults(results) {
   }
 }
 
-/* Chart rendering helpers (use safe configs) */
+/* Chart rendering helpers */
 function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
   if (charts.phNtu) charts.phNtu.destroy();
   if (charts.tempEc) charts.tempEc.destroy();
@@ -481,7 +510,6 @@ function renderCombinedChart(datasets) {
   }
   if (charts.phNtu) { charts.phNtu.destroy(); charts.phNtu = null; }
 
-  // For combined, compute min/max from datasets
   let minTs = Infinity, maxTs = -Infinity;
   datasets.forEach(ds => {
     ds.data.forEach(pt => {
@@ -490,7 +518,7 @@ function renderCombinedChart(datasets) {
       if (t > maxTs) maxTs = t;
     });
   });
-  if (!isFinite(minTs)) { console.warn('combined: no timestamps'); return; }
+  if (!isFinite(minTs)) return;
   const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
 
   const ctx = document.getElementById('chartPhNtu').getContext('2d');
@@ -509,6 +537,7 @@ function renderCombinedChart(datasets) {
   });
 }
 
+/* Map helper */
 function renderMap(points) {
   if (!map) {
     map = L.map('map').setView([0,0], 2);
@@ -536,6 +565,7 @@ function resetTimer() {
   refreshTimer = setInterval(loadAll, REFRESH_INTERVAL * 1000);
 }
 
+/* Init */
 window.addEventListener('load', () => {
   if (!SOURCES || !SOURCES.length) {
     setStatus('No CSV configured — edit SOURCES in the file.', false, false);
