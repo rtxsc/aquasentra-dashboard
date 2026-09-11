@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AQUASENTRA Telemetry Dashboard — Multi-source</title>
+  <title>AQUASENTRA Telemetry Dashboard — Refactored with Device Status</title>
 
   <!-- Tailwind CSS (dev CDN ok for testing) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -28,6 +28,10 @@
     #map { height: 260px; border-radius: 0.5rem; }
     .placeholder { color: #94a3b8; font-size: .9rem; }
     .select-sm { padding: .25rem .5rem; border-radius: .375rem; background: rgba(148,163,184,0.06); color: #cbd5e1; border: 1px solid #334155; }
+    #refreshingList { margin-left: .5rem; font-size: 0.78rem; color: #c7f9cc; }
+    #refreshingList.hide { display: none; }
+    .device-status { display:inline-flex; align-items:center; gap:0.5rem; padding:0.25rem 0.5rem; border-radius:0.375rem; font-size:0.78rem; font-weight:600; }
+    .device-status .dot { width:0.6rem; height:0.6rem; border-radius:50%; display:inline-block; }
   </style>
 </head>
 <body class="p-4 md:p-8">
@@ -38,19 +42,28 @@
         <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-white">🌊 AQUASENTRA Telemetry Station</h1>
         <p class="text-sm text-slate-400">Pico2W Live Water Quality Monitoring | Product of UiTM Sarawak</p>
       </div>
+
       <div class="flex items-center gap-3">
         <span id="statusIndicator" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300">
           <span id="statusText">● Loading Data...</span>
           <span id="statusSpinner" class="spinner"></span>
         </span>
 
-        <!-- Source selector (switch between CSV sources) -->
+        <!-- Device status block -->
+        <div id="deviceStatusBlock" class="device-status" style="background: rgba(148,163,184,0.04); color:#cbd5e1;">
+          <span id="deviceStatusDot" class="dot" style="background:#9ca3af"></span>
+          <span id="deviceStatusText">No data</span>
+          <small id="deviceLastData" style="color:#94a3b8; margin-left:0.5rem; font-weight:400;"></small>
+        </div>
+
+        <!-- refreshing indicator -->
+        <div id="refreshingList" class="hide"></div>
+
         <div class="flex items-center gap-2">
           <label class="text-xs text-slate-400 mr-1">Source</label>
           <select id="sourceSelect" class="select-sm text-sm"></select>
         </div>
 
-        <!-- Time range selector -->
         <div class="flex items-center gap-2">
           <label class="text-xs text-slate-400 mr-1">Range</label>
           <select id="timeRangeSelect" class="select-sm text-sm">
@@ -67,7 +80,6 @@
           </select>
         </div>
 
-        <!-- Resolution selector -->
         <div class="flex items-center gap-2">
           <label class="text-xs text-slate-400 mr-1">Resolution</label>
           <select id="resolutionSelect" class="select-sm text-sm">
@@ -92,7 +104,7 @@
       </div>
     </header>
 
-    <!-- KPI Summary Row -->
+    <!-- KPI Row -->
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4" id="kpiRow">
       <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
         <p class="text-xs text-slate-400 font-medium">Latest pH</p>
@@ -120,7 +132,7 @@
       </div>
     </div>
 
-    <!-- Charts Grid -->
+    <!-- Charts & panels -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div class="space-y-6">
         <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
@@ -147,8 +159,10 @@
 
       <div class="space-y-6">
         <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
-          <h2 class="text-base font-semibold text-slate-200 mb-4">Sources / Small Charts</h2>
-          <div id="smallChartsContainer" class="grid grid-cols-1 gap-4"></div>
+          <h2 class="text-base font-semibold text-slate-200 mb-4">Sources / Small Charts </h2>
+              <div id="sourceName" class="text-slate-400 text-sm mb-2"> Loading Source Name ...</div>
+
+          <div id="smallChartsContainer" class="grid grid-cols-1 gap-4"> </div>
         </div>
 
         <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
@@ -157,8 +171,7 @@
           <div id="map" style="display:none;"></div>
         </div>
 
-
-        <!-- Analytics panel (existing AI analytics, keeps working) -->
+        <!-- Analytics -->
         <div id="analyticsPanel" class="bg-slate-800/70 p-5 rounded-xl border border-slate-700 mt-6">
           <div class="flex items-start justify-between">
             <div>
@@ -195,17 +208,18 @@
       </div>
     </div>
 
-    
-
     <footer class="pt-4 text-center text-xs text-slate-500">
       Last synced: <span id="lastUpdated">Never</span> | Hosted on GitHub Pages
     </footer>
   </div>
 
 <script>
-/* CONFIG: 4 CSV sources — replace URLs and column names to match your sheets.
-   All four examples use 'full' mode (timestamp + multiple columns).
-*/
+/* -------------------- CONFIG -------------------- */
+const LOCALSTORAGE_KEY = 'aq_selected_source_v1';
+// thresholds (adjustable)
+const SLEEP_THRESHOLD_MS = 0.25 * 60 * 60 * 1000; // 15 minute (device pushes hourly, then sleeps)
+const OFFLINE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours considered offline
+
 const SOURCES = [
   {
     name: "N4P4 (Primary)",
@@ -241,169 +255,173 @@ const SOURCES = [
   }
 ];
 
-let charts = { phNtu: null, tempEc: null, vsys: null, combined: null };
-let smallCharts = [];
-let map = null;
-let markersLayer = null;
-let refreshTimer = null;
-let REFRESH_INTERVAL = Math.max(5, parseInt(document.getElementById('refreshInterval').value || 30, 10));
+/* -------------------- STATE -------------------- */
+const state = {
+  fullDataMap: {},
+  timeseriesData: {},
+  selectedSourceName: localStorage.getItem(LOCALSTORAGE_KEY) || (SOURCES[0] && SOURCES[0].name),
+  previousLastTimestamps: {}, // name -> Date of last known data (used to detect new pushes)
+  currentFullData: [],
+  charts: { phNtu: null, tempEc: null, vsys: null, combined: null },
+  smallCharts: [],
+  map: null,
+  markersLayer: null,
+  refreshTimer: null,
+  REFRESH_INTERVAL: Math.max(5, Number(document.getElementById('refreshInterval').value || 30))
+};
 
-/* In-memory cleaned data structures */
-let fullDataMap = {};    // name -> cleaned array
-let fullData = [];       // currently selected source's data (for plotting/analytics)
-let timeseriesData = {}; // not used in full-mode but preserved
+/* -------------------- REFS -------------------- */
+const refs = {
+  sourceSelect: document.getElementById('sourceSelect'),
+  timeRangeSelect: document.getElementById('timeRangeSelect'),
+  resolutionSelect: document.getElementById('resolutionSelect'),
+  refreshBtn: document.getElementById('refreshBtn'),
+  refreshInterval: document.getElementById('refreshInterval'),
+  refreshingListEl: document.getElementById('refreshingList'),
+  statusText: document.getElementById('statusText'),
+  statusSpinner: document.getElementById('statusSpinner'),
+  lastUpdated: document.getElementById('lastUpdated'),
+  smallChartsContainer: document.getElementById('smallChartsContainer'),
+  analyticsSummary: document.getElementById('analyticsSummary'),
+  anomaliesList: document.getElementById('anomaliesList'),
+  forecastList: document.getElementById('forecastList'),
+  deviceStatusText: document.getElementById('deviceStatusText'),
+  deviceStatusDot: document.getElementById('deviceStatusDot'),
+  deviceLastData: document.getElementById('deviceLastData'),
+  kpiPh: document.getElementById('kpiPh'),
+  kpiNtu: document.getElementById('kpiNtu'),
+  kpiTemp: document.getElementById('kpiTemp'),
+  kpiEc: document.getElementById('kpiEc'),
+  kpiTss: document.getElementById('kpiTss'),
+  kpiVsys: document.getElementById('kpiVsys')
+};
 
-/* UI references */
-const sourceSelect = document.getElementById('sourceSelect');
-const timeRangeSelect = document.getElementById('timeRangeSelect');
-const resolutionSelect = document.getElementById('resolutionSelect');
-const refreshBtn = document.getElementById('refreshBtn');
+/* -------------------- UTILITIES -------------------- */
+function normalizeTimestamp(raw) {
+  if (raw === null || raw === undefined || raw === "") return null;
+  if (raw instanceof Date) return isNaN(raw) ? null : raw;
 
-timeRangeSelect.addEventListener('change', () => applyRangeAndResolutionAndRender());
-resolutionSelect.addEventListener('change', () => applyRangeAndResolutionAndRender());
-sourceSelect.addEventListener('change', onSourceChange);
-refreshBtn.addEventListener('click', loadAll);
-document.getElementById('refreshInterval').addEventListener('change', (e) => {
-  const v = Math.max(5, parseInt(e.target.value || REFRESH_INTERVAL, 10));
-  REFRESH_INTERVAL = v;
-  resetTimer();
-});
+  let s = (typeof raw === 'string') ? raw.trim() : raw;
 
-/* Status UI */
-function setStatus(text, busy = false, ok = true) {
-  document.getElementById('statusText').innerText = text;
-  const spinner = document.getElementById('statusSpinner');
-  spinner.style.display = busy ? 'inline-block' : 'none';
-  const el = document.getElementById('statusIndicator');
-  el.className = ok
-    ? 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300'
-    : 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300';
+  if (typeof raw === 'number' || (typeof s === 'string' && s !== '' && !isNaN(Number(s)))) {
+    const n = Number(s);
+    if (n > 1e12) return new Date(n);
+    if (n > 1e9 && n < 1e12) return new Date(n * 1000);
+    const dnum = new Date(n);
+    if (!isNaN(dnum)) return dnum;
+  }
+
+  let d = new Date(s);
+  if (!isNaN(d)) return d;
+
+  d = new Date(s.replace(' ', 'T'));
+  if (!isNaN(d)) return d;
+
+  const slashMatch = (typeof s === 'string') && s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:[ T](.*))?$/);
+  if (slashMatch) {
+    const a = parseInt(slashMatch[1], 10), b = parseInt(slashMatch[2], 10), yy = slashMatch[3];
+    const tail = slashMatch[4] || '';
+    const year = yy.length === 2 ? ('20' + yy) : yy;
+    const tryUs = `${year}-${String(a).padStart(2,'0')}-${String(b).padStart(2,'0')}` + (tail ? 'T' + tail : '');
+    d = new Date(tryUs);
+    if (!isNaN(d)) return d;
+    const tryEu = `${year}-${String(b).padStart(2,'0')}-${String(a).padStart(2,'0')}` + (tail ? 'T' + tail : '');
+    d = new Date(tryEu);
+    if (!isNaN(d)) return d;
+    if (tail) {
+      const parts = tail.trim().split(/[:\s\-T]/).filter(Boolean).map(x => Number(x));
+      const hh = parts[0] || 0, mm = parts[1] || 0, ss = parts[2] || 0;
+      let dt = new Date(Number(year), a - 1, b, hh, mm, ss);
+      if (!isNaN(dt)) return dt;
+      dt = new Date(Number(year), b - 1, a, hh, mm, ss);
+      if (!isNaN(dt)) return dt;
+    }
+  }
+
+  if (typeof s === 'string' && s.indexOf('/') !== -1) {
+    d = new Date(s.replace(/\//g, '-'));
+    if (!isNaN(d)) return d;
+  }
+
+  return null;
 }
+function safeNum(v) { if (v === null || v === undefined || v === '') return NaN; const n = Number(String(v).replace(/[, ]+/g,'')); return isNaN(n)?NaN:n; }
+function nowStr() { return new Date().toLocaleTimeString(); }
+function formatTs(ts) { return ts instanceof Date ? ts.toLocaleString() : ''; }
 
-/* Robust fetchCsv: fetch first then Papa.parse */
+/* -------------------- FETCHING / PARSING -------------------- */
 function fetchCsv(url, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-
     fetch(url, { method: 'GET', mode: 'cors', signal: controller.signal })
-      .then(async (resp) => {
+      .then(async resp => {
         clearTimeout(timer);
-        console.log('[fetchCsv] URL:', url, 'status:', resp.status, resp.statusText);
         if (!resp.ok) {
           const txt = await resp.text().catch(()=>'<no body>');
-          console.error('[fetchCsv] non-OK response body preview:', txt.slice(0,500));
-          return reject(new Error('HTTP ' + resp.status + ' ' + resp.statusText));
+          return reject(new Error('HTTP ' + resp.status + ' ' + resp.statusText + ' preview:' + txt.slice(0,200)));
         }
         const text = await resp.text();
-        if (!text || text.trim().length === 0) {
-          console.warn('[fetchCsv] empty response body');
-          return reject(new Error('Empty CSV body'));
-        }
+        if (!text || text.trim().length === 0) return reject(new Error('Empty CSV body'));
         Papa.parse(text, {
           header: true,
           skipEmptyLines: true,
           dynamicTyping: false,
-          complete: function(results) {
-            if (results && results.data) {
-              console.log('[fetchCsv] parsed rows:', results.data.length);
-              resolve(results.data);
-            } else {
-              console.error('[fetchCsv] PapaParse returned no data', results);
-              reject(new Error('CSV parse returned no data'));
-            }
-          },
-          error: function(err) {
-            console.error('[fetchCsv] PapaParse error', err);
-            reject(err);
-          }
+          complete: function(results) { if (results && results.data) resolve(results.data); else reject(new Error('CSV parse returned no data')); },
+          error: function(err) { reject(err); }
         });
       })
-      .catch((err) => {
+      .catch(err => {
         clearTimeout(timer);
-        if (err.name === 'AbortError') {
-          console.error('[fetchCsv] request timed out');
-          reject(new Error('Fetch timed out'));
-        } else {
-          console.error('[fetchCsv] fetch error', err);
-          reject(err);
-        }
+        if (err.name === 'AbortError') reject(new Error('Fetch timed out'));
+        else reject(err);
       });
   });
 }
 
-/* Timestamp & numeric helpers */
-function normalizeTimestamp(raw) {
-  if (raw === null || raw === undefined || raw === "") return null;
-  if (raw instanceof Date) return isNaN(raw) ? null : raw;
-  const trimmed = (typeof raw === 'string') ? raw.trim() : raw;
-  const maybeNum = (trimmed !== '' && !isNaN(Number(trimmed))) ? Number(trimmed) : null;
-  if (typeof raw === 'number' || maybeNum !== null) {
-    const n = maybeNum !== null ? maybeNum : raw;
-    if (n > 1e12) return new Date(n);
-    if (n > 1e9 && n < 1e12) return new Date(n * 1000);
-    const d = new Date(n);
-    return isNaN(d) ? null : d;
-  }
-  const d1 = new Date(raw);
-  if (!isNaN(d1)) return d1;
-  const d2 = new Date(raw.replace(' ', 'T'));
-  if (!isNaN(d2)) return d2;
-  return null;
-}
-function safeNum(v) {
-  if (v === null || v === undefined || v === '') return NaN;
-  const n = Number(String(v).replace(/[, ]+/g,''));
-  return isNaN(n) ? NaN : n;
-}
-
-/* Sanitizers */
-function sanitizeFullRows(rows, tsKey, cols) {
+/* -------------------- SANITIZERS -------------------- */
+function sanitizeFullRows(rows, tsKey, cols, opts = {}) {
   if (!rows || !rows.length) return [];
   const parsed = rows.map(r => {
     const t = normalizeTimestamp(r[tsKey]);
-    const ph = safeNum(r[cols.ph]);
-    const ntu = safeNum(r[cols.ntu]);
-    const temp = safeNum(r[cols.temp]);
-    const ec = safeNum(r[cols.ec]);
-    const tss = safeNum(r[cols.tss]);
-    const vsys = safeNum(r[cols.vsys]);
-    return { raw: r, t, ph, ntu, temp, ec, tss, vsys };
+    return {
+      raw: r,
+      t,
+      ph: safeNum(r[cols.ph]),
+      ntu: safeNum(r[cols.ntu]),
+      temp: safeNum(r[cols.temp]),
+      ec: safeNum(r[cols.ec]),
+      tss: safeNum(r[cols.tss]),
+      vsys: safeNum(r[cols.vsys])
+    };
   }).filter(p => p.t !== null);
   if (!parsed.length) return [];
   parsed.sort((a,b) => a.t - b.t);
   const now = Date.now();
   const minAllowed = now - (1000 * 60 * 60 * 24 * 365 * 10);
   const maxAllowed = now + (1000 * 60 * 60 * 24 * 365 * 2);
-  const filtered = parsed.filter(p => p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed);
-  const plausible = filtered.filter(p => {
-    if (!isNaN(p.ph) && (p.ph < 0 || p.ph > 14)) return false;
-    if (!isNaN(p.temp) && (p.temp < -20 || p.temp > 60)) return false;
-    if (!isNaN(p.ec) && (p.ec < 0 || p.ec > 2000)) return false;
-    if (!isNaN(p.ntu) && (p.ntu < 0 || p.ntu > 2000)) return false;
-    if (!isNaN(p.tss) && (p.tss < 0 || p.tss > 10000)) return false;
-    if (!isNaN(p.vsys) && (p.vsys < 0 || p.vsys > 10)) return false;
+  const inWindow = parsed.filter(p => p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed);
+  const thresholds = Object.assign({
+    ph: { min: 0, max: 14 },
+    temp: { min: -20, max: 60 },
+    ec: { min: 0, max: 2000 },
+    ntu: { min: 0, max: 2000 },
+    tss: { min: 0, max: 10000 },
+    vsys: { min: 0, max: 10 }
+  }, opts.thresholds || {});
+  const plausible = inWindow.filter(p => {
+    if (!isNaN(p.ph) && (p.ph < thresholds.ph.min || p.ph > thresholds.ph.max)) return false;
+    if (!isNaN(p.temp) && (p.temp < thresholds.temp.min || p.temp > thresholds.temp.max)) return false;
+    if (!isNaN(p.ec) && (p.ec < thresholds.ec.min || p.ec > thresholds.ec.max)) return false;
+    if (!isNaN(p.ntu) && (p.ntu < thresholds.ntu.min || p.ntu > thresholds.ntu.max)) return false;
+    if (!isNaN(p.tss) && (p.tss < thresholds.tss.min || p.tss > thresholds.tss.max)) return false;
+    if (!isNaN(p.vsys) && (p.vsys < thresholds.vsys.min || p.vsys > thresholds.vsys.max)) return false;
     return true;
   });
   return plausible;
 }
-function sanitizeTimeSeriesRows(rows, tsKey, valueKey) {
-  if (!rows || !rows.length) return [];
-  const parsed = rows.map(r => {
-    const t = normalizeTimestamp(r[tsKey]);
-    const vRaw = r[valueKey];
-    const v = (vRaw === null || vRaw === undefined || vRaw === '') ? NaN : Number(String(vRaw).replace(/[, ]+/g,''));
-    return { raw: r, t, v };
-  }).filter(p => p.t !== null && !isNaN(p.v));
-  if (!parsed.length) return [];
-  parsed.sort((a,b) => a.t - b.t);
-  const now = Date.now();
-  const minAllowed = now - (1000 * 60 * 60 * 24 * 365 * 10);
-  const maxAllowed = now + (1000 * 60 * 60 * 24 * 365 * 2);
-  return parsed.filter(p => p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed);
-}
 
-/* resampling & plotting helpers (unchanged from earlier) */
+/* -------------------- RENDERING HELPERS -------------------- */
 function chooseTimeUnitAndTicks(minTs, maxTs) {
   const diffMs = maxTs - minTs;
   const diffDays = diffMs / (1000 * 60 * 60 * 24);
@@ -413,13 +431,65 @@ function chooseTimeUnitAndTicks(minTs, maxTs) {
   if (diffDays <= 365) return { unit: 'month', maxTicks: 12 };
   return { unit: 'year', maxTicks: 10 };
 }
+
+function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
+  try { if (state.charts.phNtu) state.charts.phNtu.destroy(); } catch(e) {}
+  try { if (state.charts.tempEc) state.charts.tempEc.destroy(); } catch(e) {}
+  try { if (state.charts.vsys) state.charts.vsys.destroy(); } catch(e) {}
+  if (!labels || !labels.length) return;
+  const minTs = Math.min(...labels.map(d=>d.getTime()));
+  const maxTs = Math.max(...labels.map(d=>d.getTime()));
+  const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
+  const ctx1 = document.getElementById('chartPhNtu').getContext('2d');
+  state.charts.phNtu = new Chart(ctx1, {
+    type:'line',
+    data:{ labels, datasets:[
+      { label: "pH", data: phs, borderColor:"#34d399", yAxisID:"yPh", tension:0.2, pointRadius:0 },
+      { label: "Turbidity (NTU)", data: ntus, borderColor:"#fbbf24", yAxisID:"yNtu", tension:0.2, pointRadius:0 }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, scales:{
+      x:{ type:'time', time:{ unit:cfg.unit }, ticks:{ color:"#94a3b8", maxTicksLimit:cfg.maxTicks }, grid:{ display:false } },
+      yPh:{ type:'linear', position:'left', ticks:{ color:"#34d399" }, grid:{ color:"#334155" } },
+      yNtu:{ type:'linear', position:'right', ticks:{ color:"#fbbf24" }, grid:{ display:false } }
+    }, plugins:{ legend:{ labels:{ color:"#cbd5e1" } } } }
+  });
+  const ctx2 = document.getElementById('chartTempEc').getContext('2d');
+  state.charts.tempEc = new Chart(ctx2, {
+    type:'line',
+    data:{ labels, datasets:[
+      { label:"Temp (°C)", data:temps, borderColor:"#22d3ee", yAxisID:"yTemp", tension:0.2, pointRadius:0 },
+      { label:"EC (mS/cm)", data:ecs, borderColor:"#a78bfa", yAxisID:"yEc", tension:0.2, pointRadius:0 }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, scales:{
+      x:{ type:'time', time:{ unit:cfg.unit }, ticks:{ color:"#94a3b8", maxTicksLimit:cfg.maxTicks }, grid:{ display:false } },
+      yTemp:{ type:'linear', position:'left', ticks:{ color:"#22d3ee" }, grid:{ color:"#334155" } },
+      yEc:{ type:'linear', position:'right', ticks:{ color:"#a78bfa" }, grid:{ display:false } }
+    }, plugins:{ legend:{ labels:{ color:"#cbd5e1" } } } }
+  });
+  const ctx3 = document.getElementById('chartVsys').getContext('2d');
+  state.charts.vsys = new Chart(ctx3, {
+    type:'line',
+    data:{ labels, datasets:[
+      { label:"Vsys (V)", data:vsys, borderColor:"#38bdf8", backgroundColor:"rgba(56,189,248,0.08)", fill:true, tension:0.2, pointRadius:0 }
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, scales:{
+      x:{ type:'time', time:{ unit:cfg.unit }, ticks:{ color:"#94a3b8", maxTicksLimit:cfg.maxTicks }, grid:{ display:false } },
+      y:{ ticks:{ color:"#94a3b8" }, grid:{ color:"#334155" } }
+    }, plugins:{ legend:{ labels:{ color:"#cbd5e1" } } } }
+  });
+}
+
+/* combined, small charts, map — same as earlier refactor (omitted for brevity) */
+/* We'll reuse previously defined functions: resampleFullData, resampleTimeseries, renderCombinedChart, renderMap... */
+
+/* Reuse resampling helpers from previous refactor */
 function resampleFullData(data, resSec) {
   if (!resSec || resSec === 'auto') return data.slice();
   const binMs = resSec * 1000;
   const bins = new Map();
   data.forEach(pt => {
     const key = Math.floor(pt.t.getTime() / binMs) * binMs;
-    if (!bins.has(key)) bins.set(key, { count:0, sum: { ph:0, ntu:0, temp:0, ec:0, tss:0, vsys:0 }, has: { ph:0, ntu:0, temp:0, ec:0, tss:0, vsys:0 } });
+    if (!bins.has(key)) bins.set(key, { count:0, sum:{ ph:0, ntu:0, temp:0, ec:0, tss:0, vsys:0 }, has:{ ph:0, ntu:0, temp:0, ec:0, tss:0, vsys:0 } });
     const b = bins.get(key);
     b.count++;
     ['ph','ntu','temp','ec','tss','vsys'].forEach(k => {
@@ -432,9 +502,7 @@ function resampleFullData(data, resSec) {
     const b = bins.get(msKey);
     const t = new Date(msKey + Math.floor(binMs/2));
     const item = { t };
-    ['ph','ntu','temp','ec','tss','vsys'].forEach(k => {
-      item[k] = b.has[k] ? (b.sum[k] / b.has[k]) : NaN;
-    });
+    ['ph','ntu','temp','ec','tss','vsys'].forEach(k => item[k] = b.has[k] ? (b.sum[k]/b.has[k]) : NaN);
     res.push(item);
   });
   return res;
@@ -445,625 +513,420 @@ function resampleTimeseries(data, resSec) {
   const bins = new Map();
   data.forEach(pt => {
     const key = Math.floor(pt.t.getTime() / binMs) * binMs;
-    if (!bins.has(key)) bins.set(key, { count: 0, sum: 0 });
+    if (!bins.has(key)) bins.set(key, { count:0, sum:0 });
     const b = bins.get(key);
     if (!isNaN(pt.v)) { b.sum += pt.v; b.count++; }
   });
   const res = [];
   Array.from(bins.keys()).sort((a,b)=>a-b).forEach(msKey => {
     const b = bins.get(msKey);
-    if (b.count > 0) {
-      const t = new Date(msKey + Math.floor(binMs/2));
-      res.push({ t, v: b.sum / b.count });
-    }
+    if (b.count > 0) res.push({ t: new Date(msKey + Math.floor(binMs/2)), v: b.sum / b.count });
   });
   return res;
 }
-function filterAndPrepareFullForPlot(data, rangeMs, resolutionSec) {
-  if (!data || !data.length) return null;
-  const now = Date.now();
-  const filtered = (rangeMs && rangeMs !== 'all') ? data.filter(d => d.t.getTime() >= (now - rangeMs)) : data.slice();
-  if (!filtered.length) return null;
-  const toUse = (resolutionSec && resolutionSec !== 'auto') ? resampleFullData(filtered, Number(resolutionSec)) : filtered;
-  const labels = toUse.map(d=>d.t);
-  const phs = toUse.map(d => isNaN(d.ph) ? null : d.ph);
-  const ntus = toUse.map(d => isNaN(d.ntu) ? null : d.ntu);
-  const temps = toUse.map(d => isNaN(d.temp) ? null : d.temp);
-  const ecs = toUse.map(d => isNaN(d.ec) ? null : d.ec);
-  const vsys = toUse.map(d => isNaN(d.vsys) ? null : d.vsys);
-  return { labels, phs, ntus, temps, ecs, vsys, raw: toUse };
-}
-
-/* KPI helpers */
-function updateKPIsFromFullRow(row, cols) {
-  if (!row || !cols) return;
-  try {
-    if (cols.ph && row[cols.ph] !== undefined) document.getElementById('kpiPh').innerText = Number(row[cols.ph]).toFixed(2);
-    if (cols.ntu && row[cols.ntu] !== undefined) document.getElementById('kpiNtu').innerText = Number(row[cols.ntu]).toFixed(1);
-    if (cols.temp && row[cols.temp] !== undefined) document.getElementById('kpiTemp').innerText = Number(row[cols.temp]).toFixed(1) + "°";
-    if (cols.ec && row[cols.ec] !== undefined) document.getElementById('kpiEc').innerText = Number(row[cols.ec]).toFixed(2);
-    if (cols.tss && row[cols.tss] !== undefined) document.getElementById('kpiTss').innerText = Number(row[cols.tss]).toFixed(2);
-    if (cols.vsys && row[cols.vsys] !== undefined) document.getElementById('kpiVsys').innerText = Number(row[cols.vsys]).toFixed(2) + "V";
-  } catch(e) { /* ignore */ }
-}
-function clearKPIs() {
-  document.getElementById('kpiPh').innerText = '--';
-  document.getElementById('kpiNtu').innerText = '--';
-  document.getElementById('kpiTemp').innerText = '--';
-  document.getElementById('kpiEc').innerText = '--';
-  document.getElementById('kpiTss').innerText = '--';
-  document.getElementById('kpiVsys').innerText = '--';
-}
-
-/* Chart rendering helpers */
-function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
-  if (charts.phNtu) charts.phNtu.destroy();
-  if (charts.tempEc) charts.tempEc.destroy();
-  if (charts.vsys) charts.vsys.destroy();
-  if (!labels || !labels.length) return;
-  const minTs = Math.min(...labels.map(d=>d.getTime()));
-  const maxTs = Math.max(...labels.map(d=>d.getTime()));
-  const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
-  const ctx1 = document.getElementById('chartPhNtu').getContext('2d');
-  charts.phNtu = new Chart(ctx1, {
-    type: 'line',
-    data: { labels: labels, datasets: [
-      { label: "pH Level", data: phs, borderColor: "#34d399", yAxisID: "yPh", tension: 0.2, pointRadius: 0 },
-      { label: "Turbidity (NTU)", data: ntus, borderColor: "#fbbf24", yAxisID: "yNtu", tension: 0.2, pointRadius: 0 }
-    ]},
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      scales: {
-        x: { type: 'time', time: { unit: cfg.unit }, ticks: { color: "#94a3b8", maxTicksLimit: cfg.maxTicks }, grid: { display: false } },
-        yPh: { type: 'linear', position: 'left', ticks: { color: "#34d399" }, grid: { color: "#334155" } },
-        yNtu: { type: 'linear', position: 'right', ticks: { color: "#fbbf24" }, grid: { display: false } }
-      },
-      plugins: { legend: { labels: { color: "#cbd5e1" } } }
-    }
-  });
-  const ctx2 = document.getElementById('chartTempEc').getContext('2d');
-  charts.tempEc = new Chart(ctx2, {
-    type: 'line',
-    data: { labels: labels, datasets: [
-      { label: "Temp (°C)", data: temps, borderColor: "#22d3ee", yAxisID: "yTemp", tension: 0.2, pointRadius: 0 },
-      { label: "EC (mS/cm)", data: ecs, borderColor: "#a78bfa", yAxisID: "yEc", tension: 0.2, pointRadius: 0 }
-    ]},
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      scales: {
-        x: { type: 'time', time: { unit: cfg.unit }, ticks: { color: "#94a3b8", maxTicksLimit: cfg.maxTicks }, grid: { display: false } },
-        yTemp: { type: 'linear', position: 'left', ticks: { color: "#22d3ee" }, grid: { color: "#334155" } },
-        yEc: { type: 'linear', position: 'right', ticks: { color: "#a78bfa" }, grid: { display: false } }
-      },
-      plugins: { legend: { labels: { color: "#cbd5e1" } } }
-    }
-  });
-  const ctx3 = document.getElementById('chartVsys').getContext('2d');
-  charts.vsys = new Chart(ctx3, {
-    type: 'line',
-    data: { labels: labels, datasets: [
-      { label: "Supply Voltage (Vsys)", data: vsys, borderColor: "#38bdf8", backgroundColor: "rgba(56,189,248,0.08)", fill: true, tension: 0.2, pointRadius: 0 }
-    ]},
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      scales: {
-        x: { type: 'time', time: { unit: cfg.unit }, ticks: { color: "#94a3b8", maxTicksLimit: cfg.maxTicks }, grid: { display: false } },
-        y: { ticks: { color: "#94a3b8" }, grid: { color: "#334155" } }
-      },
-      plugins: { legend: { labels: { color: "#cbd5e1" } } }
-    }
-  });
-}
-
 function renderCombinedChart(datasets) {
-  if (!datasets || !datasets.length) {
-    if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
-    return;
-  }
-  if (charts.phNtu) { charts.phNtu.destroy(); charts.phNtu = null; }
+  try { if (state.charts.combined) state.charts.combined.destroy(); } catch(e) {}
+  if (!datasets || !datasets.length) return;
   let minTs = Infinity, maxTs = -Infinity;
-  datasets.forEach(ds => {
-    ds.data.forEach(pt => {
-      const t = pt.x instanceof Date ? pt.x.getTime() : new Date(pt.x).getTime();
-      if (t < minTs) minTs = t;
-      if (t > maxTs) maxTs = t;
-    });
-  });
+  datasets.forEach(ds => ds.data.forEach(pt => {
+    const t = pt.x instanceof Date ? pt.x.getTime() : new Date(pt.x).getTime();
+    if (t < minTs) minTs = t;
+    if (t > maxTs) maxTs = t;
+  }));
   if (!isFinite(minTs)) return;
   const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
   const ctx = document.getElementById('chartPhNtu').getContext('2d');
-  charts.combined = new Chart(ctx, {
-    type: 'line',
-    data: { datasets: datasets.map(ds => ({ ...ds })) },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      parsing: false,
-      scales: {
-        x: { type: 'time', time: { unit: cfg.unit }, ticks: { color: "#94a3b8", maxTicksLimit: cfg.maxTicks }, grid: { display: false } },
-        y: { ticks: { color: "#94a3b8" }, grid: { color: "#334155" } }
-      },
-      plugins: { legend: { labels: { color: "#cbd5e1" } } }
-    }
+  state.charts.combined = new Chart(ctx, {
+    type:'line',
+    data:{ datasets: datasets.map(ds => ({ ...ds })) },
+    options:{ responsive:true, maintainAspectRatio:false, parsing:false, scales:{ x:{ type:'time', time:{ unit:cfg.unit }, ticks:{ color:"#94a3b8", maxTicksLimit:cfg.maxTicks }, grid:{ display:false } }, y:{ ticks:{ color:"#94a3b8" }, grid:{ color:"#334155" } } }, plugins:{ legend:{ labels:{ color:"#cbd5e1" } } } }
   });
 }
-
-/* Map helper */
 function renderMap(points) {
-  if (!map) {
-    map = L.map('map').setView([0,0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
-    markersLayer = L.layerGroup().addTo(map);
-  } else {
-    markersLayer.clearLayers();
-  }
+  if (!state.map) {
+    state.map = L.map('map').setView([0,0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap' }).addTo(state.map);
+    state.markersLayer = L.layerGroup().addTo(state.map);
+  } else state.markersLayer.clearLayers();
   points.forEach(p => {
-    const popup = `<b>${p.source || ''}</b><br>${(p.ts && p.ts.toLocaleString) ? p.ts.toLocaleString() : ''}${p.value !== undefined ? '<br>Value: ' + p.value : ''}`;
-    const marker = L.circleMarker([p.lat, p.lon], { radius: 6, color: '#60a5fa', fillOpacity: 0.8 }).bindPopup(popup);
-    markersLayer.addLayer(marker);
+    const popup = `<b>${p.source || ''}</b><br>${(p.ts && p.ts.toLocaleString)?p.ts.toLocaleString():''}${p.value !== undefined?'<br>Value: '+p.value:''}`;
+    const marker = L.circleMarker([p.lat, p.lon], { radius:6, color:'#60a5fa', fillOpacity:0.8 }).bindPopup(popup);
+    state.markersLayer.addLayer(marker);
   });
-  if (points.length) {
-    const latlngs = points.map(p => [p.lat, p.lon]);
-    const bounds = L.latLngBounds(latlngs);
-    map.fitBounds(bounds.pad(0.2));
-  }
+  if (points.length) state.map.fitBounds(L.latLngBounds(points.map(p=>[p.lat,p.lon])).pad(0.2));
 }
 
-
-// Replace your old populateSourceSelect() with this.
-// It preserves the user's current selection if possible.
-function populateSourceSelect() {
-  const prev = sourceSelect.value;
-  sourceSelect.innerHTML = '';
-  SOURCES.forEach((s) => {
-    const opt = document.createElement('option');
-    opt.value = s.name;
-    opt.text = s.name;
-    sourceSelect.appendChild(opt);
-  });
-
-  // Try to keep previous selection if still available; otherwise pick first.
-  if (prev && Array.from(sourceSelect.options).some(o => o.value === prev)) {
-    sourceSelect.value = prev;
-  } else if (SOURCES.length) {
-    // if nothing selected or previous not present, choose first source
-    sourceSelect.value = SOURCES[0].name;
-  }
+/* -------------------- KPI helpers -------------------- */
+function updateKPIsFromFullRow(row, cols) {
+  if (!row || !cols) return;
+  try {
+    if (cols.ph && row[cols.ph] !== undefined) refs.kpiPh.innerText = Number(row[cols.ph]).toFixed(2);
+    if (cols.ntu && row[cols.ntu] !== undefined) refs.kpiNtu.innerText = Number(row[cols.ntu]).toFixed(1);
+    if (cols.temp && row[cols.temp] !== undefined) refs.kpiTemp.innerText = Number(row[cols.temp]).toFixed(1) + "°";
+    if (cols.ec && row[cols.ec] !== undefined) refs.kpiEc.innerText = Number(row[cols.ec]).toFixed(2);
+    if (cols.tss && row[cols.tss] !== undefined) refs.kpiTss.innerText = Number(row[cols.tss]).toFixed(2);
+    if (cols.vsys && row[cols.vsys] !== undefined) refs.kpiVsys.innerText = Number(row[cols.vsys]).toFixed(2) + "V";
+  } catch(e){}
+}
+function clearKPIs() {
+  refs.kpiPh.innerText = '--'; refs.kpiNtu.innerText = '--'; refs.kpiTemp.innerText = '--';
+  refs.kpiEc.innerText = '--'; refs.kpiTss.innerText = '--'; refs.kpiVsys.innerText = '--';
 }
 
-/* On source change: set fullData to selected source and re-render */
-function onSourceChange() {
-  const name = sourceSelect.value;
-  if (!name) return;
-  fullData = fullDataMap[name] ? fullDataMap[name].slice() : [];
-  // update KPIs from last row of selected source if present
-  const cfg = SOURCES.find(s => s.name === name);
-  if (fullData && fullData.length && cfg) {
-    updateKPIsFromFullRow(fullData[fullData.length - 1].raw, cfg.columns);
+/* -------------------- DEVICE STATUS UI -------------------- */
+function setDeviceStatusUI(status, lastTs) {
+  // status: 'online' | 'deepsleep' | 'offline' | 'nodata'
+  const dot = refs.deviceStatusDot;
+  const text = refs.deviceStatusText;
+  const lastEl = refs.deviceLastData;
+  if (status === 'online') {
+    dot.style.background = '#16a34a'; // green
+    text.innerText = 'Online';
+  } else if (status === 'deepsleep') {
+    dot.style.background = '#f59e0b'; // amber
+    text.innerText = 'Deep Sleep';
+  } else if (status === 'offline') {
+    dot.style.background = '#ef4444'; // red
+    text.innerText = 'Offline';
   } else {
-    clearKPIs();
+    dot.style.background = '#9ca3af'; // gray
+    text.innerText = 'No data';
   }
-  applyRangeAndResolutionAndRender();
+  lastEl.innerText = lastTs ? `Last data: ${formatTs(lastTs)}` : '';
 }
 
-/* Main loader */
+/* Determine device status for currently selected source, using previousLastTimestamps */
+function updateDeviceStatusForSelectedSource() {
+  const name = state.selectedSourceName;
+  if (!name) { setDeviceStatusUI('nodata', null); return; }
+  const data = state.fullDataMap[name] || [];
+  if (!data || !data.length) { setDeviceStatusUI('nodata', null); return; }
+  const latest = data[data.length - 1].t; // Date
+  const prev = state.previousLastTimestamps[name] || null;
+  const now = Date.now();
+
+  let status = 'nodata';
+  if (!latest) {
+    status = 'nodata';
+  } else if (!prev || (latest.getTime() > prev.getTime())) {
+    // new push observed this refresh
+    status = 'online';
+  } else {
+    const age = now - latest.getTime();
+    if (age <= SLEEP_THRESHOLD_MS) status = 'deepsleep';
+    else if (age <= OFFLINE_THRESHOLD_MS) status = 'deepsleep'; // still sleeping or late
+    else status = 'offline';
+  }
+
+  // update UI and store previous timestamp (so future refreshes can detect changes)
+  setDeviceStatusUI(status, latest);
+  state.previousLastTimestamps[name] = latest;
+}
+
+/* -------------------- MAIN LOAD / HANDLER -------------------- */
+function setStatus(text, busy=false, ok=true) {
+  refs.statusText.innerText = text;
+  refs.statusSpinner.style.display = busy ? 'inline-block' : 'none';
+  const el = document.getElementById('statusIndicator');
+  el.className = ok ? 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300'
+                    : 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300';
+}
+
+function setControlsDisabled(disabled) {
+  refs.sourceSelect.disabled = disabled;
+  refs.refreshBtn.disabled = disabled;
+  refs.sourceSelect.classList.toggle('opacity-50', disabled);
+  refs.refreshBtn.classList.toggle('opacity-50', disabled);
+}
+
+function updateRefreshingUI(pendingSet) {
+  if (!pendingSet || pendingSet.size === 0) {
+    refs.refreshingListEl.classList.add('hide'); refs.refreshingListEl.innerText = ''; return;
+  }
+  refs.refreshingListEl.classList.remove('hide');
+  const names = Array.from(pendingSet);
+  const preview = names.length > 3 ? names.slice(0,3).join(', ') + ` and ${names.length-3} more` : names.join(', ');
+  refs.refreshingListEl.innerText = `Refreshing: ${preview}`;
+}
+
 async function loadAll() {
   console.info('[loadAll] starting CSV fetch');
-  setStatus('Fetching CSVs...', true, true);
+  setControlsDisabled(true);
+  setStatus('Refreshing sources...', true, true);
+
+  const pending = new Set(SOURCES.map(s => s.name));
+  updateRefreshingUI(pending);
+
   try {
-    const promises = SOURCES.map(s => fetchCsv(s.url).then(rows => ({source: s, rows})).catch(err => ({source: s, error: err})));
-    const results = await Promise.all(promises);
-    console.info('[loadAll] fetch results', results);
+    const fetchPromises = SOURCES.map(s =>
+      fetchCsv(s.url)
+        .then(rows => { pending.delete(s.name); updateRefreshingUI(pending); return { source: s, rows }; })
+        .catch(err => { pending.delete(s.name); updateRefreshingUI(pending); return { source: s, error: err }; })
+    );
+    const results = await Promise.all(fetchPromises);
     handleResults(results);
     setStatus('Live Connected', false, true);
     document.getElementById('lastUpdated').innerText = new Date().toLocaleTimeString();
   } catch (err) {
     console.error('[loadAll] error', err);
     setStatus('Connection Failed: ' + (err.message || err), false, false);
+  } finally {
+    setControlsDisabled(false);
+    pending.clear(); updateRefreshingUI(pending);
   }
 }
 
-// Replace existing handleResults with this diagnostic version
+/* Diagnostic handleResults */
 function handleResults(results) {
-  console.group('[diagnose] handleResults start');
-  fullDataMap = {};
-  timeseriesData = {};
-  let latlonDetected = false;
+  console.group('[handleResults]');
+  state.fullDataMap = {};
+  state.timeseriesData = {};
   const mapPoints = [];
-
-  // helper: count plausibility failures for a source
-  function diagnoseFull(rows, s) {
-    const total = rows.length;
-    const parsedTime = rows.map(r => ({ raw: r, t: normalizeTimestamp(r[s.tsCol]) }));
-    const validTimeCount = parsedTime.filter(p => p.t !== null).length;
-
-    // window guard counts
-    const now = Date.now();
-    const minAllowed = now - (1000 * 60 * 60 * 24 * 365 * 10);
-    const maxAllowed = now + (1000 * 60 * 60 * 24 * 365 * 2);
-    const inWindowCount = parsedTime.filter(p => p.t !== null && p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed).length;
-
-    // plausibility checks: run the same logic as sanitizeFullRows but count rejections
-    const parsed = rows.map(r => {
-      return {
-        raw: r,
-        t: normalizeTimestamp(r[s.tsCol]),
-        ph: safeNum(r[s.columns.ph]),
-        ntu: safeNum(r[s.columns.ntu]),
-        temp: safeNum(r[s.columns.temp]),
-        ec: safeNum(r[s.columns.ec]),
-        tss: safeNum(r[s.columns.tss]),
-        vsys: safeNum(r[s.columns.vsys])
-      };
-    });
-
-    const afterTime = parsed.filter(p => p.t !== null);
-    const afterWindow = afterTime.filter(p => p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed);
-
-    // plausibility check counts
-    const fail_ph = afterWindow.filter(p => !isNaN(p.ph) && (p.ph < 0 || p.ph > 14)).length;
-    const fail_temp = afterWindow.filter(p => !isNaN(p.temp) && (p.temp < -20 || p.temp > 60)).length;
-    const fail_ec = afterWindow.filter(p => !isNaN(p.ec) && (p.ec < 0 || p.ec > 2000)).length;
-    const fail_ntu = afterWindow.filter(p => !isNaN(p.ntu) && (p.ntu < 0 || p.ntu > 2000)).length;
-    const fail_tss = afterWindow.filter(p => !isNaN(p.tss) && (p.tss < 0 || p.tss > 10000)).length;
-    const fail_vsys = afterWindow.filter(p => !isNaN(p.vsys) && (p.vsys < 0 || p.vsys > 10)).length;
-
-    // final cleaned
-    const cleaned = sanitizeFullRows(rows, s.tsCol, s.columns);
-    return {
-      total,
-      headerKeys: rows && rows[0] ? Object.keys(rows[0]) : [],
-      sampleRaw: rows && rows[0] ? rows[0] : null,
-      validTimeCount,
-      inWindowCount,
-      fail_ph, fail_temp, fail_ec, fail_ntu, fail_tss, fail_vsys,
-      cleanedCount: cleaned.length,
-      cleanedSample: cleaned.length ? cleaned[0].raw : null,
-      cleanedArray: cleaned
-    };
-  }
+  let latlonDetected = false;
 
   results.forEach(res => {
     const s = res.source;
-    if (res.error) {
-      console.warn('[diagnose] source error', s.name, res.error);
-      return;
-    }
-    console.groupCollapsed(`[diagnose] source: ${s.name}`);
+    if (res.error) { console.warn('[handleResults] source error', s.name, res.error); return; }
+    console.groupCollapsed(`[source] ${s.name}`);
     console.log('raw rows:', res.rows.length);
-    console.log('first row (preview):', res.rows[0]);
+    console.log('first row preview:', res.rows[0]);
     console.log('headers:', res.rows[0] ? Object.keys(res.rows[0]) : 'no rows');
 
     if (s.type === 'full') {
-      const diag = diagnoseFull(res.rows, s);
-      console.log('diagnostics:', diag);
-      fullDataMap[s.name] = diag.cleanedArray; // store cleaned array
-      // collect lat/lon if provided
+      const cleaned = sanitizeFullRows(res.rows, s.tsCol, s.columns, s.sanitize || {});
+      console.log('cleaned count:', cleaned.length);
+      state.fullDataMap[s.name] = cleaned;
       if (s.columns && s.columns.lat && s.columns.lon) {
-        diag.cleanedArray.forEach(c => {
+        cleaned.forEach(c => {
           const lat = parseFloat(c.raw[s.columns.lat]);
           const lon = parseFloat(c.raw[s.columns.lon]);
-          if (!isNaN(lat) && !isNaN(lon)) {
-            latlonDetected = true;
-            mapPoints.push({ lat, lon, ts: c.t, source: s.name });
-          }
+          if (!isNaN(lat) && !isNaN(lon)) { latlonDetected = true; mapPoints.push({ lat, lon, ts: c.t, source: s.name }); }
         });
       }
     } else if (s.type === 'timeseries') {
       const cleaned = sanitizeTimeSeriesRows(res.rows, s.tsCol, s.valueCol);
-      console.log('timeseries cleaned count:', cleaned.length);
-      console.log('timeseries headers:', res.rows[0] ? Object.keys(res.rows[0]) : []);
-      timeseriesData[s.name] = { cfg: s, data: cleaned };
+      state.timeseriesData[s.name] = { cfg:s, data:cleaned };
     }
+
     console.groupEnd();
   });
 
-  // KEEP user's selection if possible
-  const prevSelection = sourceSelect.value || (SOURCES[0] && SOURCES[0].name);
-  populateSourceSelect(); // will preserve prev if possible (your fixed function)
+  // preserve selection if possible
+  const prev = refs.sourceSelect.value || state.selectedSourceName;
+  refs.sourceSelect.innerHTML = '';
+  SOURCES.forEach(s => { const opt = document.createElement('option'); opt.value = s.name; opt.text = s.name; refs.sourceSelect.appendChild(opt); });
+  if (prev && Array.from(refs.sourceSelect.options).some(o=>o.value === prev)) refs.sourceSelect.value = prev;
+  else if (SOURCES.length) refs.sourceSelect.value = SOURCES[0].name;
+  state.selectedSourceName = refs.sourceSelect.value;
+  localStorage.setItem(LOCALSTORAGE_KEY, state.selectedSourceName);
 
-  // Ensure fullData is set to chosen source (not overwritten)
-  const chosen = sourceSelect.value || prevSelection;
-  if (chosen && fullDataMap[chosen]) {
-    fullData = fullDataMap[chosen].slice();
+   document.getElementById('sourceName').textContent = state.selectedSourceName;
+
+  // set currentFullData & update KPIs
+  const chosen = state.selectedSourceName;
+  if (chosen && state.fullDataMap[chosen] && state.fullDataMap[chosen].length) {
+    state.currentFullData = state.fullDataMap[chosen].slice();
     const cfg = SOURCES.find(x => x.name === chosen);
-    if (fullData.length && cfg) updateKPIsFromFullRow(fullData[fullData.length - 1].raw, cfg.columns);
-    else {
-      clearKPIs();
-      setStatus(`No cleaned rows for ${chosen} — check headers or plausibility filters.`, false, false);
-    }
+    updateKPIsFromFullRow(state.currentFullData[state.currentFullData.length - 1].raw, cfg.columns);
   } else {
-    // no cleaned data for chosen source
-    fullData = [];
+    state.currentFullData = [];
     clearKPIs();
-    setStatus('No cleaned data available for the selected source.', false, false);
+    if (!(chosen && state.fullDataMap[chosen])) setStatus('No cleaned data available for selected source. Check headers/permissions.', false, false);
   }
 
-  // Render charts for the chosen source
   applyRangeAndResolutionAndRender();
 
-  // Map handling
   if (latlonDetected && mapPoints.length) {
     document.getElementById('map').style.display = 'block';
     document.getElementById('mapMsg').style.display = 'none';
     renderMap(mapPoints);
   } else {
-    if (map) { map.remove(); map = null; markersLayer = null; }
+    if (state.map) { state.map.remove(); state.map = null; state.markersLayer = null; }
     document.getElementById('map').style.display = 'none';
     document.getElementById('mapMsg').style.display = 'block';
   }
 
+  // update device status for selected source now that data is loaded
+  updateDeviceStatusForSelectedSource();
+
   console.groupEnd();
 }
 
-/* Apply range/resolution and render (keeps analytics auto-run) */
-function applyRangeAndResolutionAndRender() {
-  const rangeVal = timeRangeSelect.value === 'all' ? 'all' : Number(timeRangeSelect.value);
-  const resVal = resolutionSelect.value;
+/* Prepare + render charts and small charts (re-using helper functions above) */
+function filterAndPrepareFullForPlot(data, rangeMs, resolutionSec) {
+  if (!data || !data.length) return null;
+  const now = Date.now();
+  const filtered = (rangeMs && rangeMs !== 'all') ? data.filter(d => d.t.getTime() >= (now - rangeMs)) : data.slice();
+  if (!filtered.length) return null;
+  const toUse = (resolutionSec && resolutionSec !== 'auto') ? resampleFullData(filtered, Number(resolutionSec)) : filtered;
+  const labels = toUse.map(d => d.t);
+  const phs = toUse.map(d => isNaN(d.ph)?null:d.ph);
+  const ntus = toUse.map(d => isNaN(d.ntu)?null:d.ntu);
+  const temps = toUse.map(d => isNaN(d.temp)?null:d.temp);
+  const ecs = toUse.map(d => isNaN(d.ec)?null:d.ec);
+  const vsys = toUse.map(d => isNaN(d.vsys)?null:d.vsys);
+  return { labels, phs, ntus, temps, ecs, vsys, raw: toUse };
+}
 
-  // prepare and render main charts for current fullData
-  if (fullData && fullData.length) {
-    const prepared = filterAndPrepareFullForPlot(fullData, rangeVal, resVal);
-    if (prepared) {
-      renderMainCharts(prepared.labels, prepared.phs, prepared.ntus, prepared.temps, prepared.ecs, prepared.vsys);
-    } else {
-      if (charts.phNtu) { charts.phNtu.destroy(); charts.phNtu = null; }
-      if (charts.tempEc) { charts.tempEc.destroy(); charts.tempEc = null; }
-      if (charts.vsys) { charts.vsys.destroy(); charts.vsys = null; }
-    }
+function applyRangeAndResolutionAndRender() {
+  const rangeVal = refs.timeRangeSelect.value === 'all' ? 'all' : Number(refs.timeRangeSelect.value);
+  const resVal = refs.resolutionSelect.value;
+  const data = state.currentFullData || [];
+  if (data && data.length) {
+    const prepared = filterAndPrepareFullForPlot(data, rangeVal, resVal);
+    if (prepared) renderMainCharts(prepared.labels, prepared.phs, prepared.ntus, prepared.temps, prepared.ecs, prepared.vsys);
+    else { try { state.charts.phNtu.destroy(); } catch(e){} try { state.charts.tempEc.destroy(); } catch(e){} try { state.charts.vsys.destroy(); } catch(e){} }
   } else {
-    if (charts.phNtu) { charts.phNtu.destroy(); charts.phNtu = null; }
-    if (charts.tempEc) { charts.tempEc.destroy(); charts.tempEc = null; }
-    if (charts.vsys) { charts.vsys.destroy(); charts.vsys = null; }
+    try { state.charts.phNtu.destroy(); } catch(e){} try { state.charts.tempEc.destroy(); } catch(e){} try { state.charts.vsys.destroy(); } catch(e){}
   }
 
-  // render small charts & combined for timeseriesData (if any) — unchanged from prior behavior
-  const smallContainer = document.getElementById('smallChartsContainer');
-  smallContainer.innerHTML = '';
-  if (Object.keys(timeseriesData).length) {
+  // small charts for timeseries if any
+  refs.smallChartsContainer.innerHTML = '';
+  if (Object.keys(state.timeseriesData).length) {
     const combinedDatasets = [];
-    Object.values(timeseriesData).forEach((entry, idx) => {
-      const cfg = entry.cfg;
-      const cleaned = entry.data;
+    Object.values(state.timeseriesData).forEach((entry, idx) => {
+      const cfg = entry.cfg; const cleaned = entry.data;
       if (!cleaned || !cleaned.length) {
-        const card = document.createElement('div');
-        card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700 placeholder';
+        const card = document.createElement('div'); card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700 placeholder';
         card.innerHTML = `<div class="text-sm text-slate-200 font-medium">${cfg.name}</div><div class="text-xs text-slate-400 mt-2">No valid data</div>`;
-        smallContainer.appendChild(card);
-        return;
+        refs.smallChartsContainer.appendChild(card); return;
       }
-      const now = Date.now();
-      const inRange = (rangeVal === 'all') ? cleaned.slice() : cleaned.filter(p => p.t.getTime() >= (now - rangeVal));
+      const now = Date.now(); const inRange = rangeVal === 'all' ? cleaned.slice() : cleaned.filter(p => p.t.getTime() >= (now - rangeVal));
       if (!inRange.length) {
-        const card = document.createElement('div');
-        card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700 placeholder';
+        const card = document.createElement('div'); card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700 placeholder';
         card.innerHTML = `<div class="text-sm text-slate-200 font-medium">${cfg.name}</div><div class="text-xs text-slate-400 mt-2">No points in range</div>`;
-        smallContainer.appendChild(card);
-        return;
+        refs.smallChartsContainer.appendChild(card); return;
       }
       const prepared = (resVal === 'auto') ? inRange : resampleTimeseries(inRange, Number(resVal));
-      const labels = prepared.map(p => p.t);
-      const values = prepared.map(p => p.v);
-      const card = document.createElement('div');
-      card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700';
+      const labels = prepared.map(p => p.t); const values = prepared.map(p => p.v);
+      const card = document.createElement('div'); card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700';
       const canvasId = 'miniChart_' + idx;
       card.innerHTML = `<div class="flex justify-between items-center mb-2"><div class="text-sm text-slate-200 font-medium">${cfg.name}</div><div class="text-xs text-slate-400">${labels.length} pts</div></div><div class="mini-chart"><canvas id="${canvasId}"></canvas></div>`;
-      smallContainer.appendChild(card);
-
+      refs.smallChartsContainer.appendChild(card);
       const ctx = document.getElementById(canvasId).getContext('2d');
-      const minTs = Math.min(...labels.map(d=>d.getTime()));
-      const maxTs = Math.max(...labels.map(d=>d.getTime()));
+      const minTs = Math.min(...labels.map(d=>d.getTime())); const maxTs = Math.max(...labels.map(d=>d.getTime()));
       const tickCfg = chooseTimeUnitAndTicks(minTs, maxTs);
-      const miniChart = new Chart(ctx, {
-        type: 'line',
-        data: { labels: labels, datasets: [{ label: cfg.name, data: values, borderColor: cfg.color || '#60a5fa', tension: 0.3, pointRadius: 0 }] },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          scales: {
-            x: { type: 'time', time: { unit: tickCfg.unit }, ticks: { color: '#94a3b8', maxTicksLimit: tickCfg.maxTicks }, grid: { display: false } },
-            y: { ticks: { color: '#cbd5e1' } }
-          },
-          plugins: { legend: { display: false } }
-        }
-      });
-      smallCharts.push(miniChart);
-      const combinedData = prepared.map(p => ({ x: p.t, y: p.v }));
-      combinedDatasets.push({ label: cfg.name, data: combinedData, borderColor: cfg.color || '#60a5fa', tension: 0.2, fill: false });
+      const miniChart = new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label: cfg.name, data: values, borderColor: cfg.color || '#60a5fa', tension:0.3, pointRadius:0 }] }, options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ type:'time', time:{ unit: tickCfg.unit }, ticks:{ color:'#94a3b8', maxTicksLimit: tickCfg.maxTicks }, grid:{ display:false } }, y:{ ticks:{ color:'#cbd5e1' } } }, plugins:{ legend:{ display:false } } } });
+      state.smallCharts.push(miniChart);
+      combinedDatasets.push({ label: cfg.name, data: prepared.map(p=>({ x: p.t, y: p.v })), borderColor: cfg.color || '#60a5fa', tension:0.2, fill:false });
     });
     if (combinedDatasets.length) renderCombinedChart(combinedDatasets);
-    else if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
-  } else {
-    if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
-  }
-
-  // auto-run analytics after render
-  try { setTimeout(() => runAnalytics(), 150); } catch(e) { console.warn(e); }
+  } else try { if (state.charts.combined) state.charts.combined.destroy(); } catch(e){}
+  // auto-run analytics
+  try { setTimeout(() => runAnalytics(), 150); } catch(e) {}
 }
 
-/* AI Analytics code (same as previous local implementation) */
-function median(arr) {
-  const s = arr.slice().sort((a,b)=>a-b);
-  const n = s.length;
-  if (n === 0) return NaN;
-  const mid = Math.floor(n/2);
-  return n % 2 ? s[mid] : (s[mid-1] + s[mid]) / 2;
-}
-function meanStd(arr) {
-  const clean = arr.filter(x => isFinite(x));
-  const n = clean.length;
-  if (!n) return {mean: NaN, std: NaN};
-  const mean = clean.reduce((a,b) => a+b,0)/n;
-  const std = Math.sqrt(clean.reduce((a,b) => a + (b-mean)*(b-mean), 0)/n);
-  return {mean, std};
-}
-function linearRegression(xs, ys) {
-  const n = xs.length;
-  if (n < 2) return {slope: 0, intercept: isFinite(ys[ys.length-1]) ? ys[ys.length-1] : 0};
-  const meanX = xs.reduce((a,b)=>a+b,0)/n;
-  const meanY = ys.reduce((a,b)=>a+b,0)/n;
-  let num = 0, den = 0;
-  for (let i=0;i<n;i++) { const dx = xs[i]-meanX; num += dx*(ys[i]-meanY); den += dx*dx; }
-  if (den === 0) return {slope: 0, intercept: meanY};
-  const slope = num/den;
-  const intercept = meanY - slope*meanX;
-  return {slope, intercept};
-}
-function detectAnomaliesArray(values, timestamps, zThreshold = 3) {
-  const clean = values.map((v,i) => ({v, t: timestamps[i], idx: i})).filter(x => isFinite(x.v));
-  if (!clean.length) return [];
-  const vs = clean.map(x => x.v);
-  const {mean, std} = meanStd(vs);
-  const zAnoms = clean.filter(x => Math.abs((x.v-mean)/(std||1e-9)) >= zThreshold).map(x => ({type:'z', value: x.v, ts: x.t}));
-  const sorted = vs.slice().sort((a,b)=>a-b);
-  const q1 = sorted[Math.floor((sorted.length-1)/4)];
-  const q3 = sorted[Math.ceil((sorted.length-1)*3/4)];
-  const iqr = q3 - q1;
-  const low = q1 - 1.5*iqr;
-  const high = q3 + 1.5*iqr;
-  const iqrAnoms = clean.filter(x => x.v < low || x.v > high).map(x => ({type:'iqr', value: x.v, ts: x.t}));
-  const key = a => `${a.ts.getTime()}|${a.value}`;
-  const map = new Map();
-  zAnoms.concat(iqrAnoms).forEach(a => { map.set(key(a), a); });
-  return Array.from(map.values()).sort((a,b)=>a.ts - b.ts);
-}
-function forecastLinear(timestamps, values, steps = 6, stepMs = 60*60*1000) {
-  const xs = [], ys = [];
-  for (let i=0;i<timestamps.length;i++) {
-    if (!isFinite(values[i])) continue;
-    xs.push(timestamps[i].getTime());
-    ys.push(values[i]);
-  }
-  if (!xs.length) return [];
-  const lr = linearRegression(xs, ys);
-  const lastTs = Math.max(...xs);
-  const out = [];
-  for (let s=1;s<=steps;s++) {
-    const t = lastTs + s*stepMs;
-    const y = lr.slope * t + lr.intercept;
-    out.push({t: new Date(t), y});
-  }
-  return out;
-}
+/* -------------------- ANALYTICS -------------------- */
+/* ... same as previous runAnalytics/generateLLMSummary code ... */
+/* For brevity re-using runAnalytics and LLM functions from V5 - unchanged (omitted here). */
+
+function median(arr) { const s = arr.slice().sort((a,b)=>a-b); const n = s.length; if (!n) return NaN; const mid = Math.floor(n/2); return n%2 ? s[mid] : (s[mid-1]+s[mid])/2; }
+function meanStd(arr) { const clean = arr.filter(x => isFinite(x)); const n = clean.length; if (!n) return { mean: NaN, std: NaN }; const mean = clean.reduce((a,b)=>a+b,0)/n; const std = Math.sqrt(clean.reduce((a,b)=>a + (b-mean)*(b-mean),0)/n); return { mean, std }; }
+function linearRegression(xs, ys) { const n = xs.length; if (n<2) return { slope:0, intercept: isFinite(ys[ys.length-1])?ys[ys.length-1]:0 }; const meanX = xs.reduce((a,b)=>a+b,0)/n; const meanY = ys.reduce((a,b)=>a+b,0)/n; let num=0,den=0; for (let i=0;i<n;i++){ const dx=xs[i]-meanX; num+=dx*(ys[i]-meanY); den+=dx*dx; } if (den===0) return { slope:0, intercept:meanY }; const slope=num/den; const intercept = meanY - slope*meanX; return { slope, intercept }; }
+function detectAnomaliesArray(values, timestamps, zThreshold = 3) { const clean = values.map((v,i)=>({v,t:timestamps[i],idx:i})).filter(x=>isFinite(x.v)); if (!clean.length) return []; const vs = clean.map(x=>x.v); const { mean, std } = meanStd(vs); const zAnoms = clean.filter(x=> Math.abs((x.v-mean)/(std||1e-9)) >= zThreshold ).map(x=>({type:'z', value:x.v, ts:x.t})); const sorted = vs.slice().sort((a,b)=>a-b); const q1 = sorted[Math.floor((sorted.length-1)/4)]; const q3 = sorted[Math.ceil((sorted.length-1)*3/4)]; const iqr = q3 - q1; const low = q1 - 1.5*iqr, high = q3 + 1.5*iqr; const iqrAnoms = clean.filter(x=>x.v<low||x.v>high).map(x=>({type:'iqr', value:x.v, ts:x.t})); const key = a => `${a.ts.getTime()}|${a.value}`; const map = new Map(); zAnoms.concat(iqrAnoms).forEach(a=>map.set(key(a), a)); return Array.from(map.values()).sort((a,b)=>a.ts-b.ts); }
+function forecastLinear(timestamps, values, steps=6, stepMs=60*60*1000) { const xs=[],ys=[]; for (let i=0;i<timestamps.length;i++) if (isFinite(values[i])) { xs.push(timestamps[i].getTime()); ys.push(values[i]); } if (!xs.length) return []; const lr = linearRegression(xs, ys); const lastTs = Math.max(...xs); const out=[]; for (let s=1;s<=steps;s++){ const t = lastTs + s*stepMs; out.push({ t: new Date(t), y: lr.slope * t + lr.intercept }); } return out; }
+
 document.getElementById('runAnalyticsBtn').addEventListener('click', runAnalytics);
 document.getElementById('genLLMSummaryBtn').addEventListener('click', generateLLMSummary);
+
 function runAnalytics() {
-  const rangeVal = timeRangeSelect.value === 'all' ? 'all' : Number(timeRangeSelect.value);
-  const resVal = resolutionSelect.value;
-  const prepared = filterAndPrepareFullForPlot(fullData, rangeVal, resVal);
-  if (!prepared) {
-    document.getElementById('analyticsSummary').innerText = 'No data in selected range.';
-    document.getElementById('anomaliesList').innerText = '';
-    document.getElementById('forecastList').innerText = '';
-    return;
-  }
-  const summaryParts = [];
-  const anomaliesOut = [];
-  const forecastsOut = [];
-  const metrics = [
-    {key:'ph', label:'pH'},
-    {key:'ntu', label:'Turbidity (NTU)'},
-    {key:'temp', label:'Temperature (°C)'},
-    {key:'ec', label:'EC (mS/cm)'},
-    {key:'vsys', label:'Vsys (V)'}
-  ];
+  const rangeVal = refs.timeRangeSelect.value === 'all' ? 'all' : Number(refs.timeRangeSelect.value);
+  const resVal = refs.resolutionSelect.value;
+  const prepared = filterAndPrepareFullForPlot(state.currentFullData || [], rangeVal, resVal);
+  if (!prepared) { refs.analyticsSummary.innerText = 'No data in selected range.'; refs.anomaliesList.innerText = ''; refs.forecastList.innerText = ''; return; }
+  const metrics = [{key:'ph',label:'pH'},{key:'ntu',label:'Turbidity (NTU)'},{key:'temp',label:'Temperature (°C)'},{key:'ec',label:'EC (mS/cm)'},{key:'vsys',label:'Vsys (V)'}];
+  const summaryParts = [], anomaliesOut = [], forecastsOut = [];
   metrics.forEach(m => {
-    const arr = prepared.raw.map(x => (isFinite(x[m.key]) ? x[m.key] : NaN));
+    const arr = prepared.raw.map(x => isFinite(x[m.key]) ? x[m.key] : NaN);
     const ts = prepared.raw.map(x => x.t);
-    const cleanIdx = arr.map((v,i)=> ({v,i})).filter(x=>isFinite(x.v)).map(x=>x.i);
-    const values = cleanIdx.map(i => arr[i]);
-    const times = cleanIdx.map(i => ts[i]);
-    const cnt = values.length;
-    const med = median(values);
-    const {mean, std} = meanStd(values);
-    const min = values.length ? Math.min(...values) : NaN;
-    const max = values.length ? Math.max(...values) : NaN;
-    let slopePerHour = 0;
-    if (times.length >= 2) {
-      const xs = times.map(d=>d.getTime());
-      const lr = linearRegression(xs, values);
-      slopePerHour = lr.slope * 1000 * 60 * 60;
-    }
+    const idxs = arr.map((v,i)=>({v,i})).filter(x=>isFinite(x.v)).map(x=>x.i);
+    const values = idxs.map(i=>arr[i]); const times = idxs.map(i=>ts[i]);
+    const { mean, std } = meanStd(values); const med = median(values); const cnt = values.length; const min = cnt ? Math.min(...values) : NaN; const max = cnt ? Math.max(...values) : NaN;
+    let slopePerHour = 0; if (times.length >= 2) { const xs = times.map(d=>d.getTime()); const lr = linearRegression(xs, values); slopePerHour = lr.slope * 1000 * 60 * 60; }
     summaryParts.push(`${m.label}: last=${(values.length?values[values.length-1].toFixed(3):'—')}, n=${cnt}, mean=${isFinite(mean)?mean.toFixed(3):'—'}, med=${isFinite(med)?med.toFixed(3):'—'}, std=${isFinite(std)?std.toFixed(3):'—'}, range=[${isFinite(min)?min.toFixed(3):'—'}..${isFinite(max)?max.toFixed(3):'—'}], slope/hr=${slopePerHour>=0?'+':''}${isFinite(slopePerHour)?slopePerHour.toFixed(4):'—'}`);
-    const anoms = detectAnomaliesArray(values, times);
-    if (anoms.length) anomaliesOut.push({metric:m.label, list: anoms.map(a=> ({ts: a.ts, value: a.value}) )});
-    let stepMs = 3600000;
-    if (times.length >= 3) {
-      const deltas = [];
-      for (let i=1;i<times.length;i++) deltas.push(times[i].getTime()-times[i-1].getTime());
-      stepMs = median(deltas);
-    }
-    const f = forecastLinear(times, values, 6, stepMs);
-    forecastsOut.push({metric:m.label, forecast: f});
+    const anoms = detectAnomaliesArray(values, times); if (anoms.length) anomaliesOut.push({ metric: m.label, list: anoms.map(a=>({ts:a.ts, value:a.value})) });
+    let stepMs = 3600000; if (times.length >= 3) { const deltas = []; for (let i=1;i<times.length;i++) deltas.push(times[i].getTime()-times[i-1].getTime()); stepMs = median(deltas); }
+    const f = forecastLinear(times, values, 6, stepMs); forecastsOut.push({ metric: m.label, forecast: f });
   });
-  document.getElementById('analyticsSummary').innerText = summaryParts.join('\n');
-  const anEl = document.getElementById('anomaliesList');
-  if (!anomaliesOut.length) anEl.innerText = 'No anomalies detected (z-score/IQR) in selected range.';
-  else anEl.innerHTML = anomaliesOut.map(a => `<div class="mb-2"><strong>${a.metric}</strong><div class="text-xs text-slate-300">${a.list.map(x=>`${x.ts.toLocaleString()} → ${x.value}`).join('<br/>')}</div></div>`).join('');
-  const fEl = document.getElementById('forecastList');
-  fEl.innerHTML = forecastsOut.map(f => {
-    const lines = f.forecast.map(pt => `${pt.t.toLocaleString()} → ${pt.y.toFixed(3)}`);
-    return `<div class="mb-2"><strong>${f.metric}</strong><div class="text-xs text-slate-300">${lines.join('<br/>')}</div></div>`;
-  }).join('');
+  refs.analyticsSummary.innerText = summaryParts.join('\n');
+  if (!anomaliesOut.length) refs.anomaliesList.innerText = 'No anomalies detected (z-score/IQR) in selected range.'; else refs.anomaliesList.innerHTML = anomaliesOut.map(a => `<div class="mb-2"><strong>${a.metric}</strong><div class="text-xs text-slate-300">${a.list.map(x=>`${x.ts.toLocaleString()} → ${x.value}`).join('<br/>')}</div></div>`).join('');
+  refs.forecastList.innerHTML = forecastsOut.map(f => { const lines = f.forecast.map(pt => `${pt.t.toLocaleString()} → ${pt.y.toFixed(3)}`); return `<div class="mb-2"><strong>${f.metric}</strong><div class="text-xs text-slate-300">${lines.join('<br/>')}</div></div>`; }).join('');
 }
-function buildSummaryPrompt() {
-  const summaryText = document.getElementById('analyticsSummary').innerText || '';
-  const anomaliesText = document.getElementById('anomaliesList').innerText || 'None';
-  const forecastText = document.getElementById('forecastList').innerText || '';
-  return `You are an expert telemetry analyst. Summarize these telemetry analytics in 4-6 concise bullet points for an operations dashboard operator:\n\nAnalytics:\n${summaryText}\n\nAnomalies:\n${anomaliesText}\n\nForecast:\n${forecastText}\n\nInclude: main risks, urgent anomalies, suggested checks or mitigations, and a short plain-language headline.`;
-}
-function generateHeuristicSummary() {
-  const s = document.getElementById('analyticsSummary').innerText || '';
-  const lines = s.split('\n').slice(0,5);
-  const headline = lines.map(l => l.split(':')[0]).join(', ') + ' — see details';
-  const bullets = lines.slice(0,4).map(l => '- ' + l);
-  return `${headline}\n\n${bullets.join('\n')}\n\n(Heuristic summary; provide an API key for an LLM-generated narrative.)`;
-}
+
 async function generateLLMSummary() {
   runAnalytics();
   const key = document.getElementById('openaiKey').value.trim();
-  if (!key) {
-    document.getElementById('analyticsSummary').innerText = generateHeuristicSummary();
-    return;
-  }
-  const prompt = buildSummaryPrompt();
+  if (!key) { const s = refs.analyticsSummary.innerText || ''; const lines = s.split('\n').slice(0,5); const headline = lines.map(l => l.split(':')[0]).join(', ') + ' — see details'; const bullets = lines.slice(0,4).map(l => '- '+l); refs.analyticsSummary.innerText = `${headline}\n\n${bullets.join('\n')}\n\n(Heuristic summary; provide an API key for an LLM-generated narrative.)`; return; }
   setStatus('Generating LLM summary...', true, true);
+  const prompt = `You are an expert telemetry analyst. Summarize these telemetry analytics in 4-6 concise bullet points for an operations dashboard operator:\n\nAnalytics:\n${refs.analyticsSummary.innerText}\n\nAnomalies:\n${refs.anomaliesList.innerText}\n\nForecast:\n${refs.forecastList.innerText}\n\nInclude: main risks, urgent anomalies, suggested checks or mitigations, and a short plain-language headline.`;
   try {
-    const body = {
-      model: 'gpt-4o',
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 400,
-      temperature: 0.2
-    };
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-      body: JSON.stringify(body)
-    });
-    if (!resp.ok) {
-      const txt = await resp.text();
-      throw new Error('OpenAI error: ' + resp.status + ' ' + txt.slice(0,200));
-    }
+    const body = { model: 'gpt-4o', messages: [{ role:'user', content: prompt }], max_tokens:400, temperature:0.2 };
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+key }, body: JSON.stringify(body) });
+    if (!resp.ok) { const txt = await resp.text(); throw new Error('OpenAI error: ' + resp.status + ' ' + txt.slice(0,200)); }
     const data = await resp.json();
     const text = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) ? data.choices[0].message.content : JSON.stringify(data);
-    document.getElementById('analyticsSummary').innerText = text;
-    setStatus('LLM summary ready', false, true);
-  } catch (err) {
-    console.error('LLM error', err);
-    setStatus('LLM error: ' + (err.message || err), false, false);
-    document.getElementById('analyticsSummary').innerText = generateHeuristicSummary();
-  }
+    refs.analyticsSummary.innerText = text; setStatus('LLM summary ready', false, true);
+  } catch (err) { console.error('LLM error', err); setStatus('LLM error: ' + (err.message || err), false, false); }
 }
 
-/* Timer & init */
-function resetTimer() {
-  if (refreshTimer) clearInterval(refreshTimer);
-  refreshTimer = setInterval(loadAll, REFRESH_INTERVAL * 1000);
+/* -------------------- DEVICE STATUS LOGIC -------------------- */
+function setDeviceStatusUI(status, lastTs) {
+  const dot = refs.deviceStatusDot, text = refs.deviceStatusText, lastEl = refs.deviceLastData;
+  if (status === 'online') { dot.style.background = '#16a34a'; text.innerText = 'Online'; }
+  else if (status === 'deepsleep') { dot.style.background = '#f59e0b'; text.innerText = 'Deep Sleep'; }
+  else if (status === 'offline') { dot.style.background = '#ef4444'; text.innerText = 'Offline'; }
+  else { dot.style.background = '#9ca3af'; text.innerText = 'No data'; }
+  lastEl.innerText = lastTs ? `Last data: ${formatTs(lastTs)}` : '';
 }
-window.addEventListener('load', () => {
-  if (!SOURCES || !SOURCES.length) {
-    setStatus('No CSV configured — edit SOURCES in the file.', false, false);
-    return;
+
+function updateDeviceStatusForSelectedSource() {
+  const name = state.selectedSourceName;
+  if (!name) { setDeviceStatusUI('nodata', null); return; }
+  const data = state.fullDataMap[name] || [];
+  if (!data || !data.length) { setDeviceStatusUI('nodata', null); return; }
+  const latest = data[data.length - 1].t;
+  const prev = state.previousLastTimestamps[name] || null;
+  const now = Date.now();
+  let status = 'nodata';
+  if (!latest) status = 'nodata';
+  else if (!prev || (latest.getTime() > prev.getTime())) status = 'online';
+  else {
+    const age = now - latest.getTime();
+    if (age <= SLEEP_THRESHOLD_MS) status = 'deepsleep';
+    else if (age <= OFFLINE_THRESHOLD_MS) status = 'deepsleep';
+    else status = 'offline';
   }
-  populateSourceSelect();
+  setDeviceStatusUI(status, latest);
+  state.previousLastTimestamps[name] = latest;
+}
+
+/* -------------------- EVENTS -------------------- */
+refs.sourceSelect.addEventListener('change', () => {
+  state.selectedSourceName = refs.sourceSelect.value;
+  localStorage.setItem(LOCALSTORAGE_KEY, state.selectedSourceName);
+  state.currentFullData = state.fullDataMap[state.selectedSourceName] ? state.fullDataMap[state.selectedSourceName].slice() : [];
+  const cfg = SOURCES.find(s => s.name === state.selectedSourceName);
+  if (state.currentFullData && state.currentFullData.length && cfg) updateKPIsFromFullRow(state.currentFullData[state.currentFullData.length-1].raw, cfg.columns);
+  else clearKPIs();
+  applyRangeAndResolutionAndRender();
+  updateDeviceStatusForSelectedSource();
+});
+refs.timeRangeSelect.addEventListener('change', applyRangeAndResolutionAndRender);
+refs.resolutionSelect.addEventListener('change', applyRangeAndResolutionAndRender);
+refs.refreshBtn.addEventListener('click', loadAll);
+refs.refreshInterval.addEventListener('change', (e) => { const v = Math.max(5, Number(e.target.value || state.REFRESH_INTERVAL)); state.REFRESH_INTERVAL = v; resetTimer(); });
+
+/* -------------------- TIMER & INIT -------------------- */
+function resetTimer() { if (state.refreshTimer) clearInterval(state.refreshTimer); state.refreshTimer = setInterval(loadAll, state.REFRESH_INTERVAL * 1000); }
+window.addEventListener('load', () => {
+  if (!SOURCES || !SOURCES.length) { setStatus('No CSV configured — edit SOURCES in the file.', false, false); return; }
+  // populate select and init
+  const prev = localStorage.getItem(LOCALSTORAGE_KEY) || (SOURCES[0] && SOURCES[0].name);
+  refs.sourceSelect.innerHTML = ''; SOURCES.forEach(s => { const opt = document.createElement('option'); opt.value = s.name; opt.text = s.name; refs.sourceSelect.appendChild(opt); });
+  refs.sourceSelect.value = prev && Array.from(refs.sourceSelect.options).some(o=>o.value === prev) ? prev : (SOURCES[0] && SOURCES[0].name);
+  state.selectedSourceName = refs.sourceSelect.value;
+  localStorage.setItem(LOCALSTORAGE_KEY, state.selectedSourceName);
+
   loadAll();
   resetTimer();
 });
