@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AQUASENTRA Telemetry Dashboard — Multi-CSV</title>
+
+  <!-- Tailwind CSS (your style) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Chart.js + date adapter -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+  <!-- PapaParse -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <!-- Leaflet (optional map) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    body { background-color: #0f172a; color: #f8fafc; font-family: ui-sans-serif, system-ui, sans-serif; }
+    .kpi { min-height: 3.25rem; }
+    .mini-chart { height: 160px; }
+    .spinner { width: 1rem; height: 1rem; border: 3px solid rgba(255,255,255,0.08); border-top-color: #60a5fa; border-radius: 50%; animation: spin .8s linear infinite; display:inline-block; margin-left:.5rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #map { height: 260px; border-radius: 0.5rem; }
+  </style>
+</head>
+<body class="p-4 md:p-8">
+  <div class="max-w-7xl mx-auto space-y-6">
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-700 gap-4">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-white">🌊 AQUASENTRA Telemetry Station</h1>
+        <p class="text-sm text-slate-400">Pico2W-P4 Live Water Quality Monitoring</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="statusIndicator" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300">
+          <span id="statusText">● Loading Data...</span>
+          <span id="statusSpinner" class="spinner"></span>
+        </span>
+        <button id="refreshBtn" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 transition rounded-md text-sm font-medium">
+          Refresh
+        </button>
+        <div class="flex items-center gap-2 ml-2">
+          <label class="text-xs text-slate-400">Auto-refresh (s)</label>
+          <input id="refreshInterval" type="number" min="5" value="30" class="w-20 rounded-md px-2 py-1 bg-slate-800/70 text-slate-100 text-sm" />
+        </div>
+      </div>
+    </header>
+
+    <!-- KPI Summary Row -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4" id="kpiRow">
+      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
+        <p class="text-xs text-slate-400 font-medium">Latest pH</p>
+        <p id="kpiPh" class="text-2xl font-bold text-emerald-400 mt-1">--</p>
+      </div>
+      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
+        <p class="text-xs text-slate-400 font-medium">Turbidity (NTU)</p>
+        <p id="kpiNtu" class="text-2xl font-bold text-amber-400 mt-1">--</p>
+      </div>
+      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
+        <p class="text-xs text-slate-400 font-medium">Temp (°C)</p>
+        <p id="kpiTemp" class="text-2xl font-bold text-cyan-400 mt-1">--</p>
+      </div>
+      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
+        <p class="text-xs text-slate-400 font-medium">EC (mS/cm)</p>
+        <p id="kpiEc" class="text-2xl font-bold text-violet-400 mt-1">--</p>
+      </div>
+      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
+        <p class="text-xs text-slate-400 font-medium">TSS (mg/L)</p>
+        <p id="kpiTss" class="text-2xl font-bold text-pink-400 mt-1">--</p>
+      </div>
+      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
+        <p class="text-xs text-slate-400 font-medium">Supply (Vsys)</p>
+        <p id="kpiVsys" class="text-2xl font-bold text-sky-400 mt-1">--</p>
+      </div>
+    </div>
+
+    <!-- Charts Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Left: main charts -->
+      <div class="space-y-6">
+        <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
+          <h2 class="text-base font-semibold text-slate-200 mb-4">pH & Turbidity (NTU) Trends</h2>
+          <div class="relative h-72">
+            <canvas id="chartPhNtu"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
+          <h2 class="text-base font-semibold text-slate-200 mb-4">Temperature & Electrical Conductivity</h2>
+          <div class="relative h-72">
+            <canvas id="chartTempEc"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
+          <h2 class="text-base font-semibold text-slate-200 mb-4">System Battery / Supply Voltage (Vsys)</h2>
+          <div class="relative h-64">
+            <canvas id="chartVsys"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: multi-source small charts, map -->
+      <div class="space-y-6">
+        <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
+          <h2 class="text-base font-semibold text-slate-200 mb-4">Sources / Small Charts</h2>
+          <div id="smallChartsContainer" class="grid grid-cols-1 gap-4"></div>
+        </div>
+
+        <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
+          <h2 class="text-base font-semibold text-slate-200 mb-4">Map (if lat/lon present)</h2>
+          <div id="mapMsg" class="text-slate-400 text-sm mb-2">No lat/lon columns detected yet.</div>
+          <div id="map" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="pt-4 text-center text-xs text-slate-500">
+      Last synced: <span id="lastUpdated">Never</span> | Hosted on GitHub Pages
+    </footer>
+  </div>
+
+<script>
+/*
+  CONFIG: Replace URLs and column names to match your CSVs.
+
+  Two usage patterns:
+  1) Single "full metrics" CSV (typical Google Sheet export) — set one entry with type: "full"
+     - Provide tsCol and mappings for ph, ntu, temp, ec, tss, vsys (column header names).
+     - Example: { type: "full", url: "...", tsCol: "timestamp", columns: {ph:"ph", ntu:"ntu", ...} }
+
+  2) Multi-source timeseries CSVs (up to 4): each has timestamp + valueCol -> set type: "timeseries"
+     - Charting will create a mini chart per source and a combined overlay chart across sources.
+     - Example: { type: "timeseries", url: "...", tsCol: "timestamp", valueCol: "value", name: "Sensor A" }
+
+  CORS: Use raw.githubusercontent.com or GitHub Pages raw file URLs or public Google Sheets CSV export URLs.
+*/
+
+const SOURCES = [
+  // Example: Single full-metrics sheet (uncomment & fill in)
+  /*
+  {
+    name: "PrimarySheet",
+    type: "full",
+    url: "https://raw.githubusercontent.com/OWNER/REPO/BRANCH/path/to/sheet.csv",
+    tsCol: "timestamp",
+    columns: { ph: "ph", ntu: "ntu", temp: "temp", ec: "ec", tss: "tss", vsys: "vsys" },
+    color: "#34d399"
+  }
+  */
+
+  // Example: Multi timeseries (one per CSV). Uncomment and replace with up to 4 sources.
+  {
+    name: "Sensor N4P4",
+    type: "timeseries",
+    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQWU5MBW0yYFy6v4Vmzlc4lDB1YvDJbTGeEOM6NJ2MmnFqgF8H3UFjNnolRMQe-MkUzjG8nw3ToHGzr/pub?gid=0&single=true&output=csv",
+    tsCol: "timestamp",
+    valueCol: "value",
+    latCol: "", // optional
+    lonCol: "", // optional
+    color: "#60a5fa"
+  },
+  {
+    name: "Sensor B",
+    type: "timeseries",
+    url: "https://raw.githubusercontent.com/OWNER/REPO/BRANCH/path/to/sensorB.csv",
+    tsCol: "timestamp",
+    valueCol: "value",
+    latCol: "",
+    lonCol: "",
+    color: "#f97316"
+  }
+];
+
+let charts = { phNtu: null, tempEc: null, vsys: null, combined: null };
+let smallCharts = []; // array of Chart instances for timeseries sources
+let map = null;
+let markersLayer = null;
+let refreshTimer = null;
+let REFRESH_INTERVAL = Math.max(5, parseInt(document.getElementById('refreshInterval').value || 30, 10));
+
+document.getElementById('refreshBtn').addEventListener('click', loadAll);
+document.getElementById('refreshInterval').addEventListener('change', (e) => {
+  const v = Math.max(5, parseInt(e.target.value || REFRESH_INTERVAL, 10));
+  REFRESH_INTERVAL = v;
+  resetTimer();
+});
+
+function setStatus(text, busy = false, ok = true) {
+  document.getElementById('statusText').innerText = text;
+  const spinner = document.getElementById('statusSpinner');
+  if (busy) spinner.style.display = 'inline-block'; else spinner.style.display = 'none';
+  const el = document.getElementById('statusIndicator');
+  el.className = ok
+    ? 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300'
+    : 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300';
+}
+
+function fetchCsv(url) {
+  return new Promise((resolve, reject) => {
+    Papa.parse(url, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: true,
+      complete: function(results) {
+        if (results && results.data) resolve(results.data);
+        else reject(new Error('No data'));
+      },
+      error: function(err) { reject(err); }
+    });
+  });
+}
+
+function parseTime(val) {
+  if (val === null || val === undefined || val === "") return null;
+  if (typeof val === 'number') { if (val > 1e12) return new Date(val); if (val > 1e9) return new Date(val * 1000); }
+  const d = new Date(val);
+  if (!isNaN(d)) return d;
+  const d2 = new Date(val.replace(' ', 'T'));
+  if (!isNaN(d2)) return d2;
+  return null;
+}
+
+async function loadAll() {
+  setStatus('Fetching CSVs...', true, true);
+  try {
+    const promises = SOURCES.map(s => fetchCsv(s.url).then(rows => ({source: s, rows})).catch(err => ({source: s, error: err})));
+    const results = await Promise.all(promises);
+    setStatus('Parsing and rendering...', true, true);
+    handleResults(results);
+    setStatus('Live Connected', false, true);
+    document.getElementById('lastUpdated').innerText = new Date().toLocaleTimeString();
+  } catch (err) {
+    console.error(err);
+    setStatus('Connection Failed', false, false);
+  }
+}
+
+function handleResults(results) {
+  // If any source.type === 'full', render "full-metrics" mode for the first full we find
+  const fullSrc = results.find(r => !r.error && r.source.type === 'full');
+  const timeseriesResults = results.filter(r => !r.error && r.source.type === 'timeseries');
+
+  // Clear small charts UI
+  const smallContainer = document.getElementById('smallChartsContainer');
+  smallContainer.innerHTML = '';
+  smallCharts.forEach(c => c.destroy());
+  smallCharts = [];
+
+  // Reset map flag
+  let latlonDetected = false;
+  const mapPoints = [];
+
+  if (fullSrc) {
+    // Use the first full metrics CSV and build main charts & KPIs
+    const s = fullSrc.source;
+    const rows = fullSrc.rows.filter(r => r[s.tsCol]); // basic filter
+    // Parse and sort by timestamp
+    const parsed = rows.map(r => {
+      return { raw: r, t: parseTime(r[s.tsCol]) };
+    }).filter(r => r.t !== null).sort((a,b)=>a.t - b.t).map(r => ({...r.raw, _t: r.t}));
+
+    // Downsample if large
+    const step = Math.ceil(parsed.length / 500);
+    const sampled = parsed.filter((_, i) => i % step === 0 || i === parsed.length - 1);
+
+    const labels = sampled.map(r => r._t);
+    const phs = sampled.map(r => safeNum(r[s.columns.ph]));
+    const ntus = sampled.map(r => Math.max(0, safeNum(r[s.columns.ntu]) || 0));
+    const temps = sampled.map(r => safeNum(r[s.columns.temp]));
+    const ecs = sampled.map(r => safeNum(r[s.columns.ec]));
+    const vsys = sampled.map(r => safeNum(r[s.columns.vsys]));
+    // KPIs from last valid row
+    const last = parsed[parsed.length - 1] || {};
+    updateKPIs(last, s);
+
+    // Map detection for full metrics if lat/lon keys exist
+    if (s.columns.lat && s.columns.lon) {
+      parsed.forEach(r => {
+        const lat = parseFloat(r[s.columns.lat]);
+        const lon = parseFloat(r[s.columns.lon]);
+        if (!isNaN(lat) && !isNaN(lon)) {
+          latlonDetected = true;
+          mapPoints.push({lat, lon, ts: r._t, source: s.name});
+        }
+      });
+    }
+
+    renderMainCharts(labels, phs, ntus, temps, ecs, vsys);
+  } else {
+    // No full metrics source: clear KPIs
+    clearKPIs();
+  }
+
+  // Handle timeseries sources (mini charts + combined overlay)
+  if (timeseriesResults.length) {
+    // For each timeseries source, create a mini chart and collect for combined overlay
+    const combinedDatasets = [];
+    const allTimestamps = new Set();
+
+    timeseriesResults.forEach((res, idx) => {
+      const s = res.source;
+      const rows = res.rows.filter(r => r[s.tsCol]);
+      const parsed = rows.map(r => ({ raw: r, t: parseTime(r[s.tsCol]) })).filter(r => r.t !== null).sort((a,b)=>a.t-b.t);
+      // collect lat/lon if present
+      if (s.latCol && s.lonCol) {
+        parsed.forEach(p => {
+          const lat = parseFloat(p.raw[s.latCol]);
+          const lon = parseFloat(p.raw[s.lonCol]);
+          if (!isNaN(lat) && !isNaN(lon)) {
+            latlonDetected = true;
+            mapPoints.push({lat, lon, ts: p.t, source: s.name, value: safeNum(p.raw[s.valueCol])});
+          }
+        });
+      }
+
+      // downsample
+      const step = Math.ceil(parsed.length / 300) || 1;
+      const sampled = parsed.filter((_, i) => i % step === 0 || i === parsed.length - 1);
+
+      const labels = sampled.map(p => p.t);
+      const values = sampled.map(p => safeNum(p.raw[s.valueCol]));
+
+      // create UI card + mini chart canvas
+      const card = document.createElement('div');
+      card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700';
+      const canvasId = 'miniChart_' + idx;
+      card.innerHTML = `<div class="flex justify-between items-center mb-2"><div class="text-sm text-slate-200 font-medium">${s.name}</div><div class="text-xs text-slate-400">${labels.length} pts</div></div><div class="mini-chart"><canvas id="${canvasId}"></canvas></div>`;
+      smallContainer.appendChild(card);
+
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      const miniChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets: [{ label: s.name, data: values, borderColor: s.color || '#60a5fa', tension: 0.3, pointRadius: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'minute' }, ticks: { color: '#94a3b8' } }, y: { ticks: { color: '#cbd5e1' } } }, plugins: { legend: { display: false } } }
+      });
+      smallCharts.push(miniChart);
+
+      // Add to combined overlay dataset
+      combinedDatasets.push({ label: s.name, data: sampled.map((p,i)=>({x: labels[i], y: values[i]})), borderColor: s.color || '#60a5fa', tension: 0.2, fill: false });
+      sampled.forEach(p => allTimestamps.add(p.t.getTime()));
+    });
+
+    // Render combined overlay chart (reuse chartPhNtu area if no full metrics present)
+    renderCombinedChart(combinedDatasets);
+  } else {
+    // if no timeseries sources, clear combined chart if present
+    if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
+    document.getElementById('smallChartsContainer').innerHTML = '';
+  }
+
+  // Map handling
+  if (latlonDetected && mapPoints.length) {
+    document.getElementById('map').style.display = 'block';
+    document.getElementById('mapMsg').style.display = 'none';
+    renderMap(mapPoints);
+  } else {
+    if (map) { map.remove(); map = null; markersLayer = null; }
+    document.getElementById('map').style.display = 'none';
+    document.getElementById('mapMsg').style.display = 'block';
+  }
+}
+
+function safeNum(v) {
+  if (v === null || v === undefined || v === '') return NaN;
+  const n = Number(v);
+  return isNaN(n) ? NaN : n;
+}
+
+function updateKPIs(row, sourceCfg) {
+  if (!row || !row._t) return;
+  const cols = sourceCfg.columns || {};
+  // guard each KPI
+  try {
+    if (cols.ph && row[cols.ph] !== undefined) document.getElementById('kpiPh').innerText = Number(row[cols.ph]).toFixed(2);
+    if (cols.ntu && row[cols.ntu] !== undefined) document.getElementById('kpiNtu').innerText = Number(row[cols.ntu]).toFixed(1);
+    if (cols.temp && row[cols.temp] !== undefined) document.getElementById('kpiTemp').innerText = Number(row[cols.temp]).toFixed(1) + "°";
+    if (cols.ec && row[cols.ec] !== undefined) document.getElementById('kpiEc').innerText = Number(row[cols.ec]).toFixed(2);
+    if (cols.tss && row[cols.tss] !== undefined) document.getElementById('kpiTss').innerText = Number(row[cols.tss]).toFixed(2);
+    if (cols.vsys && row[cols.vsys] !== undefined) document.getElementById('kpiVsys').innerText = Number(row[cols.vsys]).toFixed(2) + "V";
+  } catch (e) { /* ignore formatting errors */ }
+}
+
+function clearKPIs() {
+  document.getElementById('kpiPh').innerText = '--';
+  document.getElementById('kpiNtu').innerText = '--';
+  document.getElementById('kpiTemp').innerText = '--';
+  document.getElementById('kpiEc').innerText = '--';
+  document.getElementById('kpiTss').innerText = '--';
+  document.getElementById('kpiVsys').innerText = '--';
+}
+
+function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
+  // destroy if exists
+  if (charts.phNtu) charts.phNtu.destroy();
+  if (charts.tempEc) charts.tempEc.destroy();
+  if (charts.vsys) charts.vsys.destroy();
+
+  // Chart 1: pH & Turbidity
+  const ctx1 = document.getElementById('chartPhNtu').getContext('2d');
+  charts.phNtu = new Chart(ctx1, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: "pH Level", data: phs, borderColor: "#34d399", yAxisID: "yPh", tension: 0.2, pointRadius: 0 },
+        { label: "Turbidity (NTU)", data: ntus, borderColor: "#fbbf24", yAxisID: "yNtu", tension: 0.2, pointRadius: 0 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { type: 'time', time: { unit: 'hour' }, ticks: { color: "#94a3b8" }, grid: { display: false } },
+        yPh: { type: 'linear', position: 'left', ticks: { color: "#34d399" }, grid: { color: "#334155" } },
+        yNtu: { type: 'linear', position: 'right', ticks: { color: "#fbbf24" }, grid: { display: false } }
+      },
+      plugins: { legend: { labels: { color: "#cbd5e1" } } }
+    }
+  });
+
+  // Chart 2: Temp & EC
+  const ctx2 = document.getElementById('chartTempEc').getContext('2d');
+  charts.tempEc = new Chart(ctx2, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: "Temp (°C)", data: temps, borderColor: "#22d3ee", yAxisID: "yTemp", tension: 0.2, pointRadius: 0 },
+        { label: "EC (mS/cm)", data: ecs, borderColor: "#a78bfa", yAxisID: "yEc", tension: 0.2, pointRadius: 0 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { type: 'time', time: { unit: 'hour' }, ticks: { color: "#94a3b8" }, grid: { display: false } },
+        yTemp: { type: 'linear', position: 'left', ticks: { color: "#22d3ee" }, grid: { color: "#334155" } },
+        yEc: { type: 'linear', position: 'right', ticks: { color: "#a78bfa" }, grid: { display: false } }
+      },
+      plugins: { legend: { labels: { color: "#cbd5e1" } } }
+    }
+  });
+
+  // Chart 3: Voltage
+  const ctx3 = document.getElementById('chartVsys').getContext('2d');
+  charts.vsys = new Chart(ctx3, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: "Supply Voltage (Vsys)", data: vsys, borderColor: "#38bdf8", backgroundColor: "rgba(56,189,248,0.08)", fill: true, tension: 0.2, pointRadius: 0 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { type: 'time', time: { unit: 'hour' }, ticks: { color: "#94a3b8" }, grid: { display: false } },
+        y: { ticks: { color: "#94a3b8" }, grid: { color: "#334155" } }
+      },
+      plugins: { legend: { labels: { color: "#cbd5e1" } } }
+    }
+  });
+}
+
+function renderCombinedChart(datasets) {
+  // Combined chart occupies the Ph/Ntu canvas if full not present, otherwise it will be a new chart below small charts (we reuse phNtu only if full absent)
+  // For simplicity: render combined overlay into chartPhNtu (destroy existing)
+  if (charts.phNtu) { charts.phNtu.destroy(); charts.phNtu = null; }
+  const ctx = document.getElementById('chartPhNtu').getContext('2d');
+  charts.combined = new Chart(ctx, {
+    type: 'line',
+    data: { datasets: datasets.map(ds => ({ ...ds, parsing: false })) },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { type: 'time', time: { unit: 'minute' }, ticks: { color: "#94a3b8" }, grid: { display: false } },
+        y: { ticks: { color: "#94a3b8" }, grid: { color: "#334155" } }
+      },
+      plugins: { legend: { labels: { color: "#cbd5e1" } } }
+    }
+  });
+}
+
+function renderMap(points) {
+  if (!map) {
+    map = L.map('map').setView([0,0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+    markersLayer = L.layerGroup().addTo(map);
+  } else {
+    markersLayer.clearLayers();
+  }
+
+  points.forEach(p => {
+    const popup = `<b>${p.source || ''}</b><br>${(p.ts && p.ts.toLocaleString) ? p.ts.toLocaleString() : ''}${p.value !== undefined ? '<br>Value: ' + p.value : ''}`;
+    const marker = L.circleMarker([p.lat, p.lon], { radius: 6, color: '#60a5fa', fillOpacity: 0.8 }).bindPopup(popup);
+    markersLayer.addLayer(marker);
+  });
+
+  if (points.length) {
+    const latlngs = points.map(p => [p.lat, p.lon]);
+    const bounds = L.latLngBounds(latlngs);
+    map.fitBounds(bounds.pad(0.2));
+  }
+}
+
+function resetTimer() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(loadAll, REFRESH_INTERVAL * 1000);
+}
+
+// Initial load and timer
+window.addEventListener('load', () => {
+  // If SOURCES empty, show helpful placeholder
+  if (!SOURCES || !SOURCES.length) {
+    setStatus('No CSV configured — edit SOURCES in the file.', false, false);
+    return;
+  }
+  loadAll();
+  resetTimer();
+});
+</script>
+</body>
+</html>
