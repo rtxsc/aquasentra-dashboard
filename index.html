@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AQUASENTRA Telemetry Dashboard — Multi-CSV</title>
+  <title>AQUASENTRA Telemetry Dashboard — Multi-CSV (patched)</title>
 
-  <!-- Tailwind CSS (your style) -->
+  <!-- Tailwind CSS (dev CDN ok for testing) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Chart.js + date adapter -->
@@ -26,11 +26,12 @@
     .spinner { width: 1rem; height: 1rem; border: 3px solid rgba(255,255,255,0.08); border-top-color: #60a5fa; border-radius: 50%; animation: spin .8s linear infinite; display:inline-block; margin-left:.5rem; }
     @keyframes spin { to { transform: rotate(360deg); } }
     #map { height: 260px; border-radius: 0.5rem; }
+    .placeholder { color: #94a3b8; font-size: .9rem; }
   </style>
 </head>
 <body class="p-4 md:p-8">
   <div class="max-w-7xl mx-auto space-y-6">
-    <!-- Header -->
+    <!-- (header/kpi/ui unchanged) -->
     <header class="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-700 gap-4">
       <div>
         <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-white">🌊 AQUASENTRA Telemetry Station</h1>
@@ -81,7 +82,6 @@
 
     <!-- Charts Grid -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <!-- Left: main charts -->
       <div class="space-y-6">
         <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
           <h2 class="text-base font-semibold text-slate-200 mb-4">pH & Turbidity (NTU) Trends</h2>
@@ -105,7 +105,6 @@
         </div>
       </div>
 
-      <!-- Right: multi-source small charts, map -->
       <div class="space-y-6">
         <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
           <h2 class="text-base font-semibold text-slate-200 mb-4">Sources / Small Charts</h2>
@@ -126,49 +125,22 @@
   </div>
 
 <script>
-/*
-  CONFIG: Replace URLs and column names to match your CSVs.
-
-  Two usage patterns:
-  1) Single "full metrics" CSV (typical Google Sheet export) — set one entry with type: "full"
-     - Provide tsCol and mappings for ph, ntu, temp, ec, tss, vsys (column header names).
-     - Example: { type: "full", url: "...", tsCol: "timestamp", columns: {ph:"ph", ntu:"ntu", ...} }
-
-  2) Multi-source timeseries CSVs (up to 4): each has timestamp + valueCol -> set type: "timeseries"
-     - Charting will create a mini chart per source and a combined overlay chart across sources.
-     - Example: { type: "timeseries", url: "...", tsCol: "timestamp", valueCol: "value", name: "Sensor A" }
-
-  CORS: Use raw.githubusercontent.com or GitHub Pages raw file URLs or public Google Sheets CSV export URLs.
-*/
-
+/* CONFIG: update your CSV URL/columns here */
 const SOURCES = [
-  // Example: Single full-metrics sheet (uncomment & fill in)
-  /*
-  {
-    name: "PrimarySheet",
-    type: "full",
-    url: "https://raw.githubusercontent.com/OWNER/REPO/BRANCH/path/to/sheet.csv",
-    tsCol: "timestamp",
-    columns: { ph: "ph", ntu: "ntu", temp: "temp", ec: "ec", tss: "tss", vsys: "vsys" },
-    color: "#34d399"
-  }
-  */
-
-  // Example: Multi timeseries (one per CSV). Uncomment and replace with up to 4 sources.
   {
     name: "Sensor N4P4",
     type: "timeseries",
-    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQWU5MBW0yYFy6v4Vmzlc4lDB1YvDJbTGeEOM6NJ2MmnFqgF8H3UFjNnolRMQe-MkUzjG8nw3ToHGzr/pub?gid=0&single=true&output=csv",
+    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQWU5MBW0yYFy6v4Vmzlc4lDB1YvDJbTGeEOM6NJ2MmnFqgF8H3UFjNnolRMQe-MkUzjG8nw3ToHGzr/pubhtml?gid=0&single=true",
     tsCol: "timestamp",
     valueCol: "value",
-    latCol: "", // optional
-    lonCol: "", // optional
+    latCol: "",
+    lonCol: "",
     color: "#60a5fa"
   }
 ];
 
 let charts = { phNtu: null, tempEc: null, vsys: null, combined: null };
-let smallCharts = []; // array of Chart instances for timeseries sources
+let smallCharts = [];
 let map = null;
 let markersLayer = null;
 let refreshTimer = null;
@@ -184,20 +156,21 @@ document.getElementById('refreshInterval').addEventListener('change', (e) => {
 function setStatus(text, busy = false, ok = true) {
   document.getElementById('statusText').innerText = text;
   const spinner = document.getElementById('statusSpinner');
-  if (busy) spinner.style.display = 'inline-block'; else spinner.style.display = 'none';
+  spinner.style.display = busy ? 'inline-block' : 'none';
   const el = document.getElementById('statusIndicator');
   el.className = ok
     ? 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300'
     : 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300';
 }
 
+/* CSV fetch wrapper */
 function fetchCsv(url) {
   return new Promise((resolve, reject) => {
     Papa.parse(url, {
       download: true,
       header: true,
       skipEmptyLines: true,
-      dynamicTyping: true,
+      dynamicTyping: false, // parse numbers manually after sanitation
       complete: function(results) {
         if (results && results.data) resolve(results.data);
         else reject(new Error('No data'));
@@ -207,16 +180,96 @@ function fetchCsv(url) {
   });
 }
 
-function parseTime(val) {
-  if (val === null || val === undefined || val === "") return null;
-  if (typeof val === 'number') { if (val > 1e12) return new Date(val); if (val > 1e9) return new Date(val * 1000); }
-  const d = new Date(val);
-  if (!isNaN(d)) return d;
-  const d2 = new Date(val.replace(' ', 'T'));
+/* Timestamp normalization */
+function normalizeTimestamp(raw) {
+  if (raw === null || raw === undefined || raw === "") return null;
+  if (raw instanceof Date) return isNaN(raw) ? null : raw;
+
+  // numeric-like strings
+  const trimmed = (typeof raw === 'string') ? raw.trim() : raw;
+  const maybeNum = (trimmed !== '' && !isNaN(Number(trimmed))) ? Number(trimmed) : null;
+  if (typeof raw === 'number' || maybeNum !== null) {
+    const n = maybeNum !== null ? maybeNum : raw;
+    if (n > 1e12) return new Date(n);            // ms
+    if (n > 1e9 && n < 1e12) return new Date(n * 1000); // seconds -> ms
+    // fallback: try Date constructor with the numeric value
+    const d = new Date(n);
+    return isNaN(d) ? null : d;
+  }
+
+  // ISO-ish string
+  const d1 = new Date(raw);
+  if (!isNaN(d1)) return d1;
+  const d2 = new Date(raw.replace(' ', 'T'));
   if (!isNaN(d2)) return d2;
   return null;
 }
 
+/* Sanitize & filter telemetry rows for a timeseries CSV */
+function sanitizeTimeSeriesRows(rows, tsKey, valueKey) {
+  if (!rows || !rows.length) return [];
+
+  const parsed = rows.map(r => {
+    const t = normalizeTimestamp(r[tsKey]);
+    const vRaw = r[valueKey];
+    const v = (vRaw === null || vRaw === undefined || vRaw === '') ? NaN : Number(String(vRaw).replace(/[, ]+/g,'')); // basic cleaning
+    return { raw: r, t, v };
+  }).filter(p => p.t !== null && !isNaN(p.v));
+
+  if (!parsed.length) return [];
+
+  // Sort by time
+  parsed.sort((a,b) => a.t - b.t);
+
+  // Remove extreme outliers outside a reasonable window
+  const now = Date.now();
+  const minAllowed = now - (1000 * 60 * 60 * 24 * 365 * 10); // 10 years ago
+  const maxAllowed = now + (1000 * 60 * 60 * 24 * 365 * 2);  // 2 years in future
+  const filtered = parsed.filter(p => (p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed));
+
+  return filtered;
+}
+
+/* Choose Chart.js time unit and tick limits */
+function chooseTimeUnitAndTicks(minTs, maxTs) {
+  const diffMs = maxTs - minTs;
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  if (diffDays <= 1) return { unit: 'hour', maxTicks: 12, stepSize: null };
+  if (diffDays <= 7) return { unit: 'day', maxTicks: 14, stepSize: null };
+  if (diffDays <= 60) return { unit: 'week', maxTicks: 12, stepSize: null };
+  if (diffDays <= 365) return { unit: 'month', maxTicks: 12, stepSize: null };
+  return { unit: 'year', maxTicks: 10, stepSize: null };
+}
+
+/* simple safe number conversion */
+function safeNum(v) {
+  if (v === null || v === undefined || v === '') return NaN;
+  const n = Number(String(v).replace(/[, ]+/g,''));
+  return isNaN(n) ? NaN : n;
+}
+
+/* KPI helpers */
+function updateKPIsFromFullRow(row, cols) {
+  if (!row || !cols) return;
+  try {
+    if (cols.ph && row[cols.ph] !== undefined) document.getElementById('kpiPh').innerText = Number(row[cols.ph]).toFixed(2);
+    if (cols.ntu && row[cols.ntu] !== undefined) document.getElementById('kpiNtu').innerText = Number(row[cols.ntu]).toFixed(1);
+    if (cols.temp && row[cols.temp] !== undefined) document.getElementById('kpiTemp').innerText = Number(row[cols.temp]).toFixed(1) + "°";
+    if (cols.ec && row[cols.ec] !== undefined) document.getElementById('kpiEc').innerText = Number(row[cols.ec]).toFixed(2);
+    if (cols.tss && row[cols.tss] !== undefined) document.getElementById('kpiTss').innerText = Number(row[cols.tss]).toFixed(2);
+    if (cols.vsys && row[cols.vsys] !== undefined) document.getElementById('kpiVsys').innerText = Number(row[cols.vsys]).toFixed(2) + "V";
+  } catch(e) { /* ignore */ }
+}
+function clearKPIs() {
+  document.getElementById('kpiPh').innerText = '--';
+  document.getElementById('kpiNtu').innerText = '--';
+  document.getElementById('kpiTemp').innerText = '--';
+  document.getElementById('kpiEc').innerText = '--';
+  document.getElementById('kpiTss').innerText = '--';
+  document.getElementById('kpiVsys').innerText = '--';
+}
+
+/* Main loader */
 async function loadAll() {
   setStatus('Fetching CSVs...', true, true);
   try {
@@ -232,92 +285,63 @@ async function loadAll() {
   }
 }
 
+/* Results handling (timeseries only / full left mostly unchanged but guarded) */
 function handleResults(results) {
-  // If any source.type === 'full', render "full-metrics" mode for the first full we find
   const fullSrc = results.find(r => !r.error && r.source.type === 'full');
   const timeseriesResults = results.filter(r => !r.error && r.source.type === 'timeseries');
 
-  // Clear small charts UI
+  // clear UI
   const smallContainer = document.getElementById('smallChartsContainer');
   smallContainer.innerHTML = '';
   smallCharts.forEach(c => c.destroy());
   smallCharts = [];
 
-  // Reset map flag
   let latlonDetected = false;
   const mapPoints = [];
 
   if (fullSrc) {
-    // Use the first full metrics CSV and build main charts & KPIs
+    // not used in your current config, but preserved with guards
     const s = fullSrc.source;
-    const rows = fullSrc.rows.filter(r => r[s.tsCol]); // basic filter
-    // Parse and sort by timestamp
-    const parsed = rows.map(r => {
-      return { raw: r, t: parseTime(r[s.tsCol]) };
-    }).filter(r => r.t !== null).sort((a,b)=>a.t - b.t).map(r => ({...r.raw, _t: r.t}));
-
-    // Downsample if large
-    const step = Math.ceil(parsed.length / 500);
-    const sampled = parsed.filter((_, i) => i % step === 0 || i === parsed.length - 1);
-
-    const labels = sampled.map(r => r._t);
-    const phs = sampled.map(r => safeNum(r[s.columns.ph]));
-    const ntus = sampled.map(r => Math.max(0, safeNum(r[s.columns.ntu]) || 0));
-    const temps = sampled.map(r => safeNum(r[s.columns.temp]));
-    const ecs = sampled.map(r => safeNum(r[s.columns.ec]));
-    const vsys = sampled.map(r => safeNum(r[s.columns.vsys]));
-    // KPIs from last valid row
-    const last = parsed[parsed.length - 1] || {};
-    updateKPIs(last, s);
-
-    // Map detection for full metrics if lat/lon keys exist
-    if (s.columns.lat && s.columns.lon) {
-      parsed.forEach(r => {
-        const lat = parseFloat(r[s.columns.lat]);
-        const lon = parseFloat(r[s.columns.lon]);
-        if (!isNaN(lat) && !isNaN(lon)) {
-          latlonDetected = true;
-          mapPoints.push({lat, lon, ts: r._t, source: s.name});
-        }
-      });
+    const rows = fullSrc.rows.filter(r => r[s.tsCol]);
+    const parsed = rows.map(r => ({ raw: r, t: normalizeTimestamp(r[s.tsCol]) })).filter(p => p.t !== null).sort((a,b)=>a.t-b.t).map(r=>({...r.raw, _t:r.t}));
+    if (parsed.length) {
+      const step = Math.ceil(parsed.length / 500);
+      const sampled = parsed.filter((_,i)=> i%step===0 || i===parsed.length-1);
+      const labels = sampled.map(r => r._t);
+      const phs = sampled.map(r => safeNum(r[s.columns.ph]));
+      const ntus = sampled.map(r => safeNum(r[s.columns.ntu]));
+      const temps = sampled.map(r => safeNum(r[s.columns.temp]));
+      const ecs = sampled.map(r => safeNum(r[s.columns.ec]));
+      const vsys = sampled.map(r => safeNum(r[s.columns.vsys]));
+      const last = parsed[parsed.length - 1];
+      updateKPIsFromFullRow(last, s.columns);
+      renderMainCharts(labels, phs, ntus, temps, ecs, vsys);
+    } else {
+      clearKPIs();
     }
-
-    renderMainCharts(labels, phs, ntus, temps, ecs, vsys);
   } else {
-    // No full metrics source: clear KPIs
     clearKPIs();
   }
 
-  // Handle timeseries sources (mini charts + combined overlay)
   if (timeseriesResults.length) {
-    // For each timeseries source, create a mini chart and collect for combined overlay
     const combinedDatasets = [];
-    const allTimestamps = new Set();
-
     timeseriesResults.forEach((res, idx) => {
       const s = res.source;
-      const rows = res.rows.filter(r => r[s.tsCol]);
-      const parsed = rows.map(r => ({ raw: r, t: parseTime(r[s.tsCol]) })).filter(r => r.t !== null).sort((a,b)=>a.t-b.t);
-      // collect lat/lon if present
-      if (s.latCol && s.lonCol) {
-        parsed.forEach(p => {
-          const lat = parseFloat(p.raw[s.latCol]);
-          const lon = parseFloat(p.raw[s.lonCol]);
-          if (!isNaN(lat) && !isNaN(lon)) {
-            latlonDetected = true;
-            mapPoints.push({lat, lon, ts: p.t, source: s.name, value: safeNum(p.raw[s.valueCol])});
-          }
-        });
+      const cleaned = sanitizeTimeSeriesRows(res.rows, s.tsCol, s.valueCol);
+      if (!cleaned.length) {
+        // show placeholder card
+        const card = document.createElement('div');
+        card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700 placeholder';
+        card.innerHTML = `<div class="text-sm text-slate-200 font-medium">${s.name}</div><div class="text-xs text-slate-400 mt-2">No valid data points to plot</div>`;
+        smallContainer.appendChild(card);
+        return;
       }
 
-      // downsample
-      const step = Math.ceil(parsed.length / 300) || 1;
-      const sampled = parsed.filter((_, i) => i % step === 0 || i === parsed.length - 1);
+      // prepare mini chart data (labels as Date objects, values)
+      const labels = cleaned.map(p => p.t);
+      const values = cleaned.map(p => p.v);
 
-      const labels = sampled.map(p => p.t);
-      const values = sampled.map(p => safeNum(p.raw[s.valueCol]));
-
-      // create UI card + mini chart canvas
+      // create card and canvas
       const card = document.createElement('div');
       card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700';
       const canvasId = 'miniChart_' + idx;
@@ -325,27 +349,55 @@ function handleResults(results) {
       smallContainer.appendChild(card);
 
       const ctx = document.getElementById(canvasId).getContext('2d');
+
+      // choose time unit for the mini chart
+      const minTs = Math.min(...labels.map(d=>d.getTime()));
+      const maxTs = Math.max(...labels.map(d=>d.getTime()));
+      const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
+
       const miniChart = new Chart(ctx, {
         type: 'line',
-        data: { labels, datasets: [{ label: s.name, data: values, borderColor: s.color || '#60a5fa', tension: 0.3, pointRadius: 0 }] },
-        options: { responsive: true, maintainAspectRatio: false, scales: { x: { type: 'time', time: { unit: 'minute' }, ticks: { color: '#94a3b8' } }, y: { ticks: { color: '#cbd5e1' } } }, plugins: { legend: { display: false } } }
+        data: { labels: labels, datasets: [{ label: s.name, data: values, borderColor: s.color || '#60a5fa', tension: 0.3, pointRadius: 0 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: {
+            x: { type: 'time', time: { unit: cfg.unit }, ticks: { color: '#94a3b8', maxTicksLimit: cfg.maxTicks }, grid: { display: false } },
+            y: { ticks: { color: '#cbd5e1' } }
+          },
+          plugins: { legend: { display: false } }
+        }
       });
       smallCharts.push(miniChart);
 
-      // Add to combined overlay dataset
-      combinedDatasets.push({ label: s.name, data: sampled.map((p,i)=>({x: labels[i], y: values[i]})), borderColor: s.color || '#60a5fa', tension: 0.2, fill: false });
-      sampled.forEach(p => allTimestamps.add(p.t.getTime()));
+      // combined dataset: use array of {x: Date, y: number}
+      const combinedData = cleaned.map(p => ({ x: p.t, y: p.v }));
+      combinedDatasets.push({ label: s.name, data: combinedData, borderColor: s.color || '#60a5fa', tension: 0.2, fill: false });
+
+      // lat/lon collection
+      if (s.latCol && s.lonCol) {
+        cleaned.forEach(p => {
+          const lat = parseFloat(p.raw[s.latCol]);
+          const lon = parseFloat(p.raw[s.lonCol]);
+          if (!isNaN(lat) && !isNaN(lon)) {
+            latlonDetected = true;
+            mapPoints.push({ lat, lon, ts: p.t, source: s.name, value: p.v });
+          }
+        });
+      }
     });
 
-    // Render combined overlay chart (reuse chartPhNtu area if no full metrics present)
-    renderCombinedChart(combinedDatasets);
+    // render combined overlay chart if we have datasets
+    if (combinedDatasets.length) {
+      renderCombinedChart(combinedDatasets);
+    } else {
+      if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
+    }
   } else {
-    // if no timeseries sources, clear combined chart if present
+    // clear combined chart and small container
     if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
     document.getElementById('smallChartsContainer').innerHTML = '';
   }
 
-  // Map handling
   if (latlonDetected && mapPoints.length) {
     document.getElementById('map').style.display = 'block';
     document.getElementById('mapMsg').style.display = 'none';
@@ -357,56 +409,29 @@ function handleResults(results) {
   }
 }
 
-function safeNum(v) {
-  if (v === null || v === undefined || v === '') return NaN;
-  const n = Number(v);
-  return isNaN(n) ? NaN : n;
-}
-
-function updateKPIs(row, sourceCfg) {
-  if (!row || !row._t) return;
-  const cols = sourceCfg.columns || {};
-  // guard each KPI
-  try {
-    if (cols.ph && row[cols.ph] !== undefined) document.getElementById('kpiPh').innerText = Number(row[cols.ph]).toFixed(2);
-    if (cols.ntu && row[cols.ntu] !== undefined) document.getElementById('kpiNtu').innerText = Number(row[cols.ntu]).toFixed(1);
-    if (cols.temp && row[cols.temp] !== undefined) document.getElementById('kpiTemp').innerText = Number(row[cols.temp]).toFixed(1) + "°";
-    if (cols.ec && row[cols.ec] !== undefined) document.getElementById('kpiEc').innerText = Number(row[cols.ec]).toFixed(2);
-    if (cols.tss && row[cols.tss] !== undefined) document.getElementById('kpiTss').innerText = Number(row[cols.tss]).toFixed(2);
-    if (cols.vsys && row[cols.vsys] !== undefined) document.getElementById('kpiVsys').innerText = Number(row[cols.vsys]).toFixed(2) + "V";
-  } catch (e) { /* ignore formatting errors */ }
-}
-
-function clearKPIs() {
-  document.getElementById('kpiPh').innerText = '--';
-  document.getElementById('kpiNtu').innerText = '--';
-  document.getElementById('kpiTemp').innerText = '--';
-  document.getElementById('kpiEc').innerText = '--';
-  document.getElementById('kpiTss').innerText = '--';
-  document.getElementById('kpiVsys').innerText = '--';
-}
-
+/* Chart rendering helpers (use safe configs) */
 function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
-  // destroy if exists
   if (charts.phNtu) charts.phNtu.destroy();
   if (charts.tempEc) charts.tempEc.destroy();
   if (charts.vsys) charts.vsys.destroy();
 
-  // Chart 1: pH & Turbidity
+  if (!labels || !labels.length) return;
+
+  const minTs = Math.min(...labels.map(d=>d.getTime()));
+  const maxTs = Math.max(...labels.map(d=>d.getTime()));
+  const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
+
   const ctx1 = document.getElementById('chartPhNtu').getContext('2d');
   charts.phNtu = new Chart(ctx1, {
     type: 'line',
-    data: {
-      labels: labels,
-      datasets: [
-        { label: "pH Level", data: phs, borderColor: "#34d399", yAxisID: "yPh", tension: 0.2, pointRadius: 0 },
-        { label: "Turbidity (NTU)", data: ntus, borderColor: "#fbbf24", yAxisID: "yNtu", tension: 0.2, pointRadius: 0 }
-      ]
-    },
+    data: { labels: labels, datasets: [
+      { label: "pH Level", data: phs, borderColor: "#34d399", yAxisID: "yPh", tension: 0.2, pointRadius: 0 },
+      { label: "Turbidity (NTU)", data: ntus, borderColor: "#fbbf24", yAxisID: "yNtu", tension: 0.2, pointRadius: 0 }
+    ]},
     options: {
       responsive: true, maintainAspectRatio: false,
       scales: {
-        x: { type: 'time', time: { unit: 'hour' }, ticks: { color: "#94a3b8" }, grid: { display: false } },
+        x: { type: 'time', time: { unit: cfg.unit }, ticks: { color: "#94a3b8", maxTicksLimit: cfg.maxTicks }, grid: { display: false } },
         yPh: { type: 'linear', position: 'left', ticks: { color: "#34d399" }, grid: { color: "#334155" } },
         yNtu: { type: 'linear', position: 'right', ticks: { color: "#fbbf24" }, grid: { display: false } }
       },
@@ -414,21 +439,17 @@ function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
     }
   });
 
-  // Chart 2: Temp & EC
   const ctx2 = document.getElementById('chartTempEc').getContext('2d');
   charts.tempEc = new Chart(ctx2, {
     type: 'line',
-    data: {
-      labels: labels,
-      datasets: [
-        { label: "Temp (°C)", data: temps, borderColor: "#22d3ee", yAxisID: "yTemp", tension: 0.2, pointRadius: 0 },
-        { label: "EC (mS/cm)", data: ecs, borderColor: "#a78bfa", yAxisID: "yEc", tension: 0.2, pointRadius: 0 }
-      ]
-    },
+    data: { labels: labels, datasets: [
+      { label: "Temp (°C)", data: temps, borderColor: "#22d3ee", yAxisID: "yTemp", tension: 0.2, pointRadius: 0 },
+      { label: "EC (mS/cm)", data: ecs, borderColor: "#a78bfa", yAxisID: "yEc", tension: 0.2, pointRadius: 0 }
+    ]},
     options: {
       responsive: true, maintainAspectRatio: false,
       scales: {
-        x: { type: 'time', time: { unit: 'hour' }, ticks: { color: "#94a3b8" }, grid: { display: false } },
+        x: { type: 'time', time: { unit: cfg.unit }, ticks: { color: "#94a3b8", maxTicksLimit: cfg.maxTicks }, grid: { display: false } },
         yTemp: { type: 'linear', position: 'left', ticks: { color: "#22d3ee" }, grid: { color: "#334155" } },
         yEc: { type: 'linear', position: 'right', ticks: { color: "#a78bfa" }, grid: { display: false } }
       },
@@ -436,20 +457,16 @@ function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
     }
   });
 
-  // Chart 3: Voltage
   const ctx3 = document.getElementById('chartVsys').getContext('2d');
   charts.vsys = new Chart(ctx3, {
     type: 'line',
-    data: {
-      labels: labels,
-      datasets: [
-        { label: "Supply Voltage (Vsys)", data: vsys, borderColor: "#38bdf8", backgroundColor: "rgba(56,189,248,0.08)", fill: true, tension: 0.2, pointRadius: 0 }
-      ]
-    },
+    data: { labels: labels, datasets: [
+      { label: "Supply Voltage (Vsys)", data: vsys, borderColor: "#38bdf8", backgroundColor: "rgba(56,189,248,0.08)", fill: true, tension: 0.2, pointRadius: 0 }
+    ]},
     options: {
       responsive: true, maintainAspectRatio: false,
       scales: {
-        x: { type: 'time', time: { unit: 'hour' }, ticks: { color: "#94a3b8" }, grid: { display: false } },
+        x: { type: 'time', time: { unit: cfg.unit }, ticks: { color: "#94a3b8", maxTicksLimit: cfg.maxTicks }, grid: { display: false } },
         y: { ticks: { color: "#94a3b8" }, grid: { color: "#334155" } }
       },
       plugins: { legend: { labels: { color: "#cbd5e1" } } }
@@ -458,17 +475,33 @@ function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
 }
 
 function renderCombinedChart(datasets) {
-  // Combined chart occupies the Ph/Ntu canvas if full not present, otherwise it will be a new chart below small charts (we reuse phNtu only if full absent)
-  // For simplicity: render combined overlay into chartPhNtu (destroy existing)
+  if (!datasets || !datasets.length) {
+    if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
+    return;
+  }
   if (charts.phNtu) { charts.phNtu.destroy(); charts.phNtu = null; }
+
+  // For combined, compute min/max from datasets
+  let minTs = Infinity, maxTs = -Infinity;
+  datasets.forEach(ds => {
+    ds.data.forEach(pt => {
+      const t = pt.x instanceof Date ? pt.x.getTime() : new Date(pt.x).getTime();
+      if (t < minTs) minTs = t;
+      if (t > maxTs) maxTs = t;
+    });
+  });
+  if (!isFinite(minTs)) { console.warn('combined: no timestamps'); return; }
+  const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
+
   const ctx = document.getElementById('chartPhNtu').getContext('2d');
   charts.combined = new Chart(ctx, {
     type: 'line',
-    data: { datasets: datasets.map(ds => ({ ...ds, parsing: false })) },
+    data: { datasets: datasets.map(ds => ({ ...ds })) },
     options: {
       responsive: true, maintainAspectRatio: false,
+      parsing: false, // using x/y objects
       scales: {
-        x: { type: 'time', time: { unit: 'minute' }, ticks: { color: "#94a3b8" }, grid: { display: false } },
+        x: { type: 'time', time: { unit: cfg.unit }, ticks: { color: "#94a3b8", maxTicksLimit: cfg.maxTicks }, grid: { display: false } },
         y: { ticks: { color: "#94a3b8" }, grid: { color: "#334155" } }
       },
       plugins: { legend: { labels: { color: "#cbd5e1" } } }
@@ -503,9 +536,7 @@ function resetTimer() {
   refreshTimer = setInterval(loadAll, REFRESH_INTERVAL * 1000);
 }
 
-// Initial load and timer
 window.addEventListener('load', () => {
-  // If SOURCES empty, show helpful placeholder
   if (!SOURCES || !SOURCES.length) {
     setStatus('No CSV configured — edit SOURCES in the file.', false, false);
     return;
