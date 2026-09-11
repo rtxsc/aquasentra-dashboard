@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AQUASENTRA Telemetry Dashboard — Patched</title>
+  <title>AQUASENTRA Telemetry Dashboard — Multi-source</title>
 
   <!-- Tailwind CSS (dev CDN ok for testing) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -27,6 +27,7 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     #map { height: 260px; border-radius: 0.5rem; }
     .placeholder { color: #94a3b8; font-size: .9rem; }
+    .select-sm { padding: .25rem .5rem; border-radius: .375rem; background: rgba(148,163,184,0.06); color: #cbd5e1; border: 1px solid #334155; }
   </style>
 </head>
 <body class="p-4 md:p-8">
@@ -35,16 +36,55 @@
     <header class="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-700 gap-4">
       <div>
         <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-white">🌊 AQUASENTRA Telemetry Station</h1>
-        <p class="text-sm text-slate-400">Pico2W-P4 Live Water Quality Monitoring</p>
+        <p class="text-sm text-slate-400">Pico2W Live Water Quality Monitoring | Product of UiTM Sarawak</p>
       </div>
       <div class="flex items-center gap-3">
         <span id="statusIndicator" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300">
           <span id="statusText">● Loading Data...</span>
           <span id="statusSpinner" class="spinner"></span>
         </span>
+
+        <!-- Source selector (switch between CSV sources) -->
+        <div class="flex items-center gap-2">
+          <label class="text-xs text-slate-400 mr-1">Source</label>
+          <select id="sourceSelect" class="select-sm text-sm"></select>
+        </div>
+
+        <!-- Time range selector -->
+        <div class="flex items-center gap-2">
+          <label class="text-xs text-slate-400 mr-1">Range</label>
+          <select id="timeRangeSelect" class="select-sm text-sm">
+            <option value="3600000">1h</option>
+            <option value="21600000">6h</option>
+            <option value="43200000">12h</option>
+            <option value="86400000">24h</option>
+            <option value="604800000">7d</option>
+            <option value="2592000000">30d</option>
+            <option value="7776000000" selected>90d</option>
+            <option value="15552000000">180d</option>
+            <option value="31536000000">1y</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+
+        <!-- Resolution selector -->
+        <div class="flex items-center gap-2">
+          <label class="text-xs text-slate-400 mr-1">Resolution</label>
+          <select id="resolutionSelect" class="select-sm text-sm">
+            <option value="auto" selected>Auto</option>
+            <option value="60">1m</option>
+            <option value="300">5m</option>
+            <option value="900">15m</option>
+            <option value="3600">1h</option>
+            <option value="21600">6h</option>
+            <option value="86400">1d</option>
+          </select>
+        </div>
+
         <button id="refreshBtn" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 transition rounded-md text-sm font-medium">
           Refresh
         </button>
+
         <div class="flex items-center gap-2 ml-2">
           <label class="text-xs text-slate-400">Auto-refresh (s)</label>
           <input id="refreshInterval" type="number" min="5" value="30" class="w-20 rounded-md px-2 py-1 bg-slate-800/70 text-slate-100 text-sm" />
@@ -116,8 +156,46 @@
           <div id="mapMsg" class="text-slate-400 text-sm mb-2">No lat/lon columns detected yet.</div>
           <div id="map" style="display:none;"></div>
         </div>
+
+
+        <!-- Analytics panel (existing AI analytics, keeps working) -->
+        <div id="analyticsPanel" class="bg-slate-800/70 p-5 rounded-xl border border-slate-700 mt-6">
+          <div class="flex items-start justify-between">
+            <div>
+              <h3 class="text-lg font-semibold text-slate-200">AI Analytics</h3>
+              <p class="text-sm text-slate-400">On-device analytics: stats, anomalies, trends, forecast. Use LLM option for natural-language summary (optional).</p>
+            </div>
+            <div class="flex gap-2 items-center">
+              <button id="runAnalyticsBtn" class="px-3 py-1 bg-blue-600 rounded text-sm">Compute</button>
+              <button id="genLLMSummaryBtn" class="px-3 py-1 bg-emerald-600 rounded text-sm">LLM Summary</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div class="col-span-2">
+              <div id="analyticsSummary" class="text-sm text-slate-300 whitespace-pre-wrap"></div>
+            </div>
+            <div>
+              <label class="text-xs text-slate-400">OpenAI API Key (optional)</label>
+              <input id="openaiKey" type="password" class="w-full mt-1 p-2 rounded bg-slate-900/60 text-slate-100 text-sm" placeholder="sk-..." />
+              <div class="text-xs text-slate-400 mt-1">If provided, LLM summaries will be requested from OpenAI. Do not paste sensitive keys on shared devices.</div>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <h4 class="text-sm font-medium text-slate-200 mb-2">Detected anomalies</h4>
+            <div id="anomaliesList" class="text-sm text-rose-300"></div>
+          </div>
+
+          <div class="mt-4">
+            <h4 class="text-sm font-medium text-slate-200 mb-2">Forecast (linear, next steps)</h4>
+            <div id="forecastList" class="text-sm text-slate-300"></div>
+          </div>
+        </div>
       </div>
     </div>
+
+    
 
     <footer class="pt-4 text-center text-xs text-slate-500">
       Last synced: <span id="lastUpdated">Never</span> | Hosted on GitHub Pages
@@ -125,15 +203,41 @@
   </div>
 
 <script>
-/* CONFIG: set to your published CSV */
+/* CONFIG: 4 CSV sources — replace URLs and column names to match your sheets.
+   All four examples use 'full' mode (timestamp + multiple columns).
+*/
 const SOURCES = [
   {
-    name: "Sensor N4P4",
+    name: "N4P4 (Primary)",
     type: "full",
     url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQWU5MBW0yYFy6v4Vmzlc4lDB1YvDJbTGeEOM6NJ2MmnFqgF8H3UFjNnolRMQe-MkUzjG8nw3ToHGzr/pub?gid=0&single=true&output=csv",
     tsCol: "timestamp",
     columns: { ph: "ph", ntu: "ntu", temp: "temp", ec: "ec", tss: "tss", vsys: "vsys" },
     color: "#60a5fa"
+  },
+  {
+    name: "N3P3",
+    type: "full",
+    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTqPhitjf7o0139ms1ym2tDKFveuEZc6BI3PHvNLi12-QHe5_Gqc_dnmChmhkkyY3alZ_WEFz_peZKC/pub?gid=0&single=true&output=csv",
+    tsCol: "timestamp",
+    columns: { ph: "ph", ntu: "ntu", temp: "temp", ec: "ec", tss: "tss", vsys: "vsys" },
+    color: "#f97316"
+  },
+  {
+    name: "N2P1",
+    type: "full",
+    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTuukD0C8PQhGiU1ckSKlCe8p_7CXL9M5iV9EiALhVj8aNsRJ1_c5Muur0FyIOP6VnU9DBKNrAGJu4e/pub?gid=0&single=true&output=csv",
+    tsCol: "timestamp",
+    columns: { ph: "ph", ntu: "ntu", temp: "temp", ec: "ec", tss: "tss", vsys: "vsys" },
+    color: "#34d399"
+  },
+  {
+    name: "N1P5",
+    type: "full",
+    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRFKFKU2PhwYFXvE3OG7JHhG6JLMBYroVmXJ3yX8Shuf5OpOJT-S7YtavspJiwfpq4K6tXKkiWb6_of/pub?gid=0&single=true&output=csv",
+    tsCol: "timestamp",
+    columns: { ph: "ph", ntu: "ntu", temp: "temp", ec: "ec", tss: "tss", vsys: "vsys" },
+    color: "#d946ef"
   }
 ];
 
@@ -144,13 +248,28 @@ let markersLayer = null;
 let refreshTimer = null;
 let REFRESH_INTERVAL = Math.max(5, parseInt(document.getElementById('refreshInterval').value || 30, 10));
 
-document.getElementById('refreshBtn').addEventListener('click', loadAll);
+/* In-memory cleaned data structures */
+let fullDataMap = {};    // name -> cleaned array
+let fullData = [];       // currently selected source's data (for plotting/analytics)
+let timeseriesData = {}; // not used in full-mode but preserved
+
+/* UI references */
+const sourceSelect = document.getElementById('sourceSelect');
+const timeRangeSelect = document.getElementById('timeRangeSelect');
+const resolutionSelect = document.getElementById('resolutionSelect');
+const refreshBtn = document.getElementById('refreshBtn');
+
+timeRangeSelect.addEventListener('change', () => applyRangeAndResolutionAndRender());
+resolutionSelect.addEventListener('change', () => applyRangeAndResolutionAndRender());
+sourceSelect.addEventListener('change', onSourceChange);
+refreshBtn.addEventListener('click', loadAll);
 document.getElementById('refreshInterval').addEventListener('change', (e) => {
   const v = Math.max(5, parseInt(e.target.value || REFRESH_INTERVAL, 10));
   REFRESH_INTERVAL = v;
   resetTimer();
 });
 
+/* Status UI */
 function setStatus(text, busy = false, ok = true) {
   document.getElementById('statusText').innerText = text;
   const spinner = document.getElementById('statusSpinner');
@@ -161,56 +280,86 @@ function setStatus(text, busy = false, ok = true) {
     : 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300';
 }
 
-/* CSV fetch wrapper */
-function fetchCsv(url) {
+/* Robust fetchCsv: fetch first then Papa.parse */
+function fetchCsv(url, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
-    Papa.parse(url, {
-      download: true,
-      header: true,
-      skipEmptyLines: true,
-      dynamicTyping: false,
-      complete: function(results) {
-        if (results && results.data) resolve(results.data);
-        else reject(new Error('No data'));
-      },
-      error: function(err) { reject(err); }
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    fetch(url, { method: 'GET', mode: 'cors', signal: controller.signal })
+      .then(async (resp) => {
+        clearTimeout(timer);
+        console.log('[fetchCsv] URL:', url, 'status:', resp.status, resp.statusText);
+        if (!resp.ok) {
+          const txt = await resp.text().catch(()=>'<no body>');
+          console.error('[fetchCsv] non-OK response body preview:', txt.slice(0,500));
+          return reject(new Error('HTTP ' + resp.status + ' ' + resp.statusText));
+        }
+        const text = await resp.text();
+        if (!text || text.trim().length === 0) {
+          console.warn('[fetchCsv] empty response body');
+          return reject(new Error('Empty CSV body'));
+        }
+        Papa.parse(text, {
+          header: true,
+          skipEmptyLines: true,
+          dynamicTyping: false,
+          complete: function(results) {
+            if (results && results.data) {
+              console.log('[fetchCsv] parsed rows:', results.data.length);
+              resolve(results.data);
+            } else {
+              console.error('[fetchCsv] PapaParse returned no data', results);
+              reject(new Error('CSV parse returned no data'));
+            }
+          },
+          error: function(err) {
+            console.error('[fetchCsv] PapaParse error', err);
+            reject(err);
+          }
+        });
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        if (err.name === 'AbortError') {
+          console.error('[fetchCsv] request timed out');
+          reject(new Error('Fetch timed out'));
+        } else {
+          console.error('[fetchCsv] fetch error', err);
+          reject(err);
+        }
+      });
   });
 }
 
-/* Timestamp normalization */
+/* Timestamp & numeric helpers */
 function normalizeTimestamp(raw) {
   if (raw === null || raw === undefined || raw === "") return null;
   if (raw instanceof Date) return isNaN(raw) ? null : raw;
-
   const trimmed = (typeof raw === 'string') ? raw.trim() : raw;
   const maybeNum = (trimmed !== '' && !isNaN(Number(trimmed))) ? Number(trimmed) : null;
   if (typeof raw === 'number' || maybeNum !== null) {
     const n = maybeNum !== null ? maybeNum : raw;
-    if (n > 1e12) return new Date(n);            // ms
-    if (n > 1e9 && n < 1e12) return new Date(n * 1000); // sec -> ms
+    if (n > 1e12) return new Date(n);
+    if (n > 1e9 && n < 1e12) return new Date(n * 1000);
     const d = new Date(n);
     return isNaN(d) ? null : d;
   }
-
   const d1 = new Date(raw);
   if (!isNaN(d1)) return d1;
   const d2 = new Date(raw.replace(' ', 'T'));
   if (!isNaN(d2)) return d2;
   return null;
 }
-
-/* Simple safe number conversion */
 function safeNum(v) {
   if (v === null || v === undefined || v === '') return NaN;
   const n = Number(String(v).replace(/[, ]+/g,''));
   return isNaN(n) ? NaN : n;
 }
 
-/* Sanitize full-metrics rows (timestamp + many cols) */
+/* Sanitizers */
 function sanitizeFullRows(rows, tsKey, cols) {
   if (!rows || !rows.length) return [];
-
   const parsed = rows.map(r => {
     const t = normalizeTimestamp(r[tsKey]);
     const ph = safeNum(r[cols.ph]);
@@ -221,33 +370,23 @@ function sanitizeFullRows(rows, tsKey, cols) {
     const vsys = safeNum(r[cols.vsys]);
     return { raw: r, t, ph, ntu, temp, ec, tss, vsys };
   }).filter(p => p.t !== null);
-
   if (!parsed.length) return [];
-
   parsed.sort((a,b) => a.t - b.t);
-
-  // time window guard
   const now = Date.now();
-  const minAllowed = now - (1000 * 60 * 60 * 24 * 365 * 10); // 10y
-  const maxAllowed = now + (1000 * 60 * 60 * 24 * 365 * 2);  // 2y
+  const minAllowed = now - (1000 * 60 * 60 * 24 * 365 * 10);
+  const maxAllowed = now + (1000 * 60 * 60 * 24 * 365 * 2);
   const filtered = parsed.filter(p => p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed);
-
-  // plausibility filters - tweak to your needs
   const plausible = filtered.filter(p => {
     if (!isNaN(p.ph) && (p.ph < 0 || p.ph > 14)) return false;
     if (!isNaN(p.temp) && (p.temp < -20 || p.temp > 60)) return false;
     if (!isNaN(p.ec) && (p.ec < 0 || p.ec > 2000)) return false;
-    // drop negative NTU (sensor error) - change to clamp if you prefer
     if (!isNaN(p.ntu) && (p.ntu < 0 || p.ntu > 2000)) return false;
     if (!isNaN(p.tss) && (p.tss < 0 || p.tss > 10000)) return false;
     if (!isNaN(p.vsys) && (p.vsys < 0 || p.vsys > 10)) return false;
     return true;
   });
-
   return plausible;
 }
-
-/* Sanitize timeseries rows (single value) - kept for backward compatibility */
 function sanitizeTimeSeriesRows(rows, tsKey, valueKey) {
   if (!rows || !rows.length) return [];
   const parsed = rows.map(r => {
@@ -256,7 +395,6 @@ function sanitizeTimeSeriesRows(rows, tsKey, valueKey) {
     const v = (vRaw === null || vRaw === undefined || vRaw === '') ? NaN : Number(String(vRaw).replace(/[, ]+/g,''));
     return { raw: r, t, v };
   }).filter(p => p.t !== null && !isNaN(p.v));
-
   if (!parsed.length) return [];
   parsed.sort((a,b) => a.t - b.t);
   const now = Date.now();
@@ -265,7 +403,7 @@ function sanitizeTimeSeriesRows(rows, tsKey, valueKey) {
   return parsed.filter(p => p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed);
 }
 
-/* Choose Chart.js time unit and tick limits */
+/* resampling & plotting helpers (unchanged from earlier) */
 function chooseTimeUnitAndTicks(minTs, maxTs) {
   const diffMs = maxTs - minTs;
   const diffDays = diffMs / (1000 * 60 * 60 * 24);
@@ -274,6 +412,66 @@ function chooseTimeUnitAndTicks(minTs, maxTs) {
   if (diffDays <= 60) return { unit: 'week', maxTicks: 12 };
   if (diffDays <= 365) return { unit: 'month', maxTicks: 12 };
   return { unit: 'year', maxTicks: 10 };
+}
+function resampleFullData(data, resSec) {
+  if (!resSec || resSec === 'auto') return data.slice();
+  const binMs = resSec * 1000;
+  const bins = new Map();
+  data.forEach(pt => {
+    const key = Math.floor(pt.t.getTime() / binMs) * binMs;
+    if (!bins.has(key)) bins.set(key, { count:0, sum: { ph:0, ntu:0, temp:0, ec:0, tss:0, vsys:0 }, has: { ph:0, ntu:0, temp:0, ec:0, tss:0, vsys:0 } });
+    const b = bins.get(key);
+    b.count++;
+    ['ph','ntu','temp','ec','tss','vsys'].forEach(k => {
+      const v = pt[k];
+      if (!isNaN(v)) { b.sum[k] += v; b.has[k]++; }
+    });
+  });
+  const res = [];
+  Array.from(bins.keys()).sort((a,b)=>a-b).forEach(msKey => {
+    const b = bins.get(msKey);
+    const t = new Date(msKey + Math.floor(binMs/2));
+    const item = { t };
+    ['ph','ntu','temp','ec','tss','vsys'].forEach(k => {
+      item[k] = b.has[k] ? (b.sum[k] / b.has[k]) : NaN;
+    });
+    res.push(item);
+  });
+  return res;
+}
+function resampleTimeseries(data, resSec) {
+  if (!resSec) return data.slice();
+  const binMs = resSec * 1000;
+  const bins = new Map();
+  data.forEach(pt => {
+    const key = Math.floor(pt.t.getTime() / binMs) * binMs;
+    if (!bins.has(key)) bins.set(key, { count: 0, sum: 0 });
+    const b = bins.get(key);
+    if (!isNaN(pt.v)) { b.sum += pt.v; b.count++; }
+  });
+  const res = [];
+  Array.from(bins.keys()).sort((a,b)=>a-b).forEach(msKey => {
+    const b = bins.get(msKey);
+    if (b.count > 0) {
+      const t = new Date(msKey + Math.floor(binMs/2));
+      res.push({ t, v: b.sum / b.count });
+    }
+  });
+  return res;
+}
+function filterAndPrepareFullForPlot(data, rangeMs, resolutionSec) {
+  if (!data || !data.length) return null;
+  const now = Date.now();
+  const filtered = (rangeMs && rangeMs !== 'all') ? data.filter(d => d.t.getTime() >= (now - rangeMs)) : data.slice();
+  if (!filtered.length) return null;
+  const toUse = (resolutionSec && resolutionSec !== 'auto') ? resampleFullData(filtered, Number(resolutionSec)) : filtered;
+  const labels = toUse.map(d=>d.t);
+  const phs = toUse.map(d => isNaN(d.ph) ? null : d.ph);
+  const ntus = toUse.map(d => isNaN(d.ntu) ? null : d.ntu);
+  const temps = toUse.map(d => isNaN(d.temp) ? null : d.temp);
+  const ecs = toUse.map(d => isNaN(d.ec) ? null : d.ec);
+  const vsys = toUse.map(d => isNaN(d.vsys) ? null : d.vsys);
+  return { labels, phs, ntus, temps, ecs, vsys, raw: toUse };
 }
 
 /* KPI helpers */
@@ -297,159 +495,15 @@ function clearKPIs() {
   document.getElementById('kpiVsys').innerText = '--';
 }
 
-/* Main loader */
-async function loadAll() {
-  setStatus('Fetching CSVs...', true, true);
-  try {
-    const promises = SOURCES.map(s => fetchCsv(s.url).then(rows => ({source: s, rows})).catch(err => ({source: s, error: err})));
-    const results = await Promise.all(promises);
-    setStatus('Parsing and rendering...', true, true);
-    handleResults(results);
-    setStatus('Live Connected', false, true);
-    document.getElementById('lastUpdated').innerText = new Date().toLocaleTimeString();
-  } catch (err) {
-    console.error(err);
-    setStatus('Connection Failed', false, false);
-  }
-}
-
-/* Results handling */
-function handleResults(results) {
-  const fullSrc = results.find(r => !r.error && r.source.type === 'full');
-  const timeseriesResults = results.filter(r => !r.error && r.source.type === 'timeseries');
-
-  // clear UI
-  const smallContainer = document.getElementById('smallChartsContainer');
-  smallContainer.innerHTML = '';
-  smallCharts.forEach(c => c.destroy());
-  smallCharts = [];
-
-  let latlonDetected = false;
-  const mapPoints = [];
-
-  if (fullSrc) {
-    const s = fullSrc.source;
-    const cleaned = sanitizeFullRows(fullSrc.rows, s.tsCol, s.columns);
-    if (!cleaned.length) {
-      clearKPIs();
-    } else {
-      const step = Math.ceil(cleaned.length / 500) || 1;
-      const sampled = cleaned.filter((_,i) => i % step === 0 || i === cleaned.length - 1);
-      const labels = sampled.map(r => r.t);
-      const phs = sampled.map(r => isNaN(r.ph) ? null : r.ph);
-      const ntus = sampled.map(r => isNaN(r.ntu) ? null : r.ntu);
-      const temps = sampled.map(r => isNaN(r.temp) ? null : r.temp);
-      const ecs = sampled.map(r => isNaN(r.ec) ? null : r.ec);
-      const vsys = sampled.map(r => isNaN(r.vsys) ? null : r.vsys);
-
-      // KPIs: use last cleaned raw row
-      const last = cleaned[cleaned.length - 1];
-      if (last) updateKPIsFromFullRow(last.raw, s.columns);
-
-      // collect lat/lon if present
-      if (s.columns.lat && s.columns.lon) {
-        cleaned.forEach(c => {
-          const lat = parseFloat(c.raw[s.columns.lat]);
-          const lon = parseFloat(c.raw[s.columns.lon]);
-          if (!isNaN(lat) && !isNaN(lon)) {
-            latlonDetected = true;
-            mapPoints.push({ lat, lon, ts: c.t, source: s.name });
-          }
-        });
-      }
-
-      renderMainCharts(labels, phs, ntus, temps, ecs, vsys);
-    }
-  } else {
-    clearKPIs();
-  }
-
-  // timeseries (not used in your current file but supported)
-  if (timeseriesResults.length) {
-    const combinedDatasets = [];
-    timeseriesResults.forEach((res, idx) => {
-      const s = res.source;
-      const cleaned = sanitizeTimeSeriesRows(res.rows, s.tsCol, s.valueCol);
-      if (!cleaned.length) {
-        const card = document.createElement('div');
-        card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700 placeholder';
-        card.innerHTML = `<div class="text-sm text-slate-200 font-medium">${s.name}</div><div class="text-xs text-slate-400 mt-2">No valid data points to plot</div>`;
-        smallContainer.appendChild(card);
-        return;
-      }
-
-      const labels = cleaned.map(p => p.t);
-      const values = cleaned.map(p => p.v);
-
-      const card = document.createElement('div');
-      card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700';
-      const canvasId = 'miniChart_' + idx;
-      card.innerHTML = `<div class="flex justify-between items-center mb-2"><div class="text-sm text-slate-200 font-medium">${s.name}</div><div class="text-xs text-slate-400">${labels.length} pts</div></div><div class="mini-chart"><canvas id="${canvasId}"></canvas></div>`;
-      smallContainer.appendChild(card);
-
-      const ctx = document.getElementById(canvasId).getContext('2d');
-      const minTs = Math.min(...labels.map(d=>d.getTime()));
-      const maxTs = Math.max(...labels.map(d=>d.getTime()));
-      const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
-
-      const miniChart = new Chart(ctx, {
-        type: 'line',
-        data: { labels: labels, datasets: [{ label: s.name, data: values, borderColor: s.color || '#60a5fa', tension: 0.3, pointRadius: 0 }] },
-        options: {
-          responsive: true, maintainAspectRatio: false,
-          scales: {
-            x: { type: 'time', time: { unit: cfg.unit }, ticks: { color: '#94a3b8', maxTicksLimit: cfg.maxTicks }, grid: { display: false } },
-            y: { ticks: { color: '#cbd5e1' } }
-          },
-          plugins: { legend: { display: false } }
-        }
-      });
-      smallCharts.push(miniChart);
-
-      const combinedData = cleaned.map(p => ({ x: p.t, y: p.v }));
-      combinedDatasets.push({ label: s.name, data: combinedData, borderColor: s.color || '#60a5fa', tension: 0.2, fill: false });
-
-      if (s.latCol && s.lonCol) {
-        cleaned.forEach(p => {
-          const lat = parseFloat(p.raw[s.latCol]);
-          const lon = parseFloat(p.raw[s.lonCol]);
-          if (!isNaN(lat) && !isNaN(lon)) {
-            latlonDetected = true;
-            mapPoints.push({ lat, lon, ts: p.t, source: s.name, value: p.v });
-          }
-        });
-      }
-    });
-
-    if (combinedDatasets.length) renderCombinedChart(combinedDatasets);
-  } else {
-    if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
-    document.getElementById('smallChartsContainer').innerHTML = '';
-  }
-
-  if (latlonDetected && mapPoints.length) {
-    document.getElementById('map').style.display = 'block';
-    document.getElementById('mapMsg').style.display = 'none';
-    renderMap(mapPoints);
-  } else {
-    if (map) { map.remove(); map = null; markersLayer = null; }
-    document.getElementById('map').style.display = 'none';
-    document.getElementById('mapMsg').style.display = 'block';
-  }
-}
-
 /* Chart rendering helpers */
 function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
   if (charts.phNtu) charts.phNtu.destroy();
   if (charts.tempEc) charts.tempEc.destroy();
   if (charts.vsys) charts.vsys.destroy();
-
   if (!labels || !labels.length) return;
-
   const minTs = Math.min(...labels.map(d=>d.getTime()));
   const maxTs = Math.max(...labels.map(d=>d.getTime()));
   const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
-
   const ctx1 = document.getElementById('chartPhNtu').getContext('2d');
   charts.phNtu = new Chart(ctx1, {
     type: 'line',
@@ -467,7 +521,6 @@ function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
       plugins: { legend: { labels: { color: "#cbd5e1" } } }
     }
   });
-
   const ctx2 = document.getElementById('chartTempEc').getContext('2d');
   charts.tempEc = new Chart(ctx2, {
     type: 'line',
@@ -485,7 +538,6 @@ function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
       plugins: { legend: { labels: { color: "#cbd5e1" } } }
     }
   });
-
   const ctx3 = document.getElementById('chartVsys').getContext('2d');
   charts.vsys = new Chart(ctx3, {
     type: 'line',
@@ -509,7 +561,6 @@ function renderCombinedChart(datasets) {
     return;
   }
   if (charts.phNtu) { charts.phNtu.destroy(); charts.phNtu = null; }
-
   let minTs = Infinity, maxTs = -Infinity;
   datasets.forEach(ds => {
     ds.data.forEach(pt => {
@@ -520,14 +571,13 @@ function renderCombinedChart(datasets) {
   });
   if (!isFinite(minTs)) return;
   const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
-
   const ctx = document.getElementById('chartPhNtu').getContext('2d');
   charts.combined = new Chart(ctx, {
     type: 'line',
     data: { datasets: datasets.map(ds => ({ ...ds })) },
     options: {
       responsive: true, maintainAspectRatio: false,
-      parsing: false, // using x/y objects
+      parsing: false,
       scales: {
         x: { type: 'time', time: { unit: cfg.unit }, ticks: { color: "#94a3b8", maxTicksLimit: cfg.maxTicks }, grid: { display: false } },
         y: { ticks: { color: "#94a3b8" }, grid: { color: "#334155" } }
@@ -546,13 +596,11 @@ function renderMap(points) {
   } else {
     markersLayer.clearLayers();
   }
-
   points.forEach(p => {
     const popup = `<b>${p.source || ''}</b><br>${(p.ts && p.ts.toLocaleString) ? p.ts.toLocaleString() : ''}${p.value !== undefined ? '<br>Value: ' + p.value : ''}`;
     const marker = L.circleMarker([p.lat, p.lon], { radius: 6, color: '#60a5fa', fillOpacity: 0.8 }).bindPopup(popup);
     markersLayer.addLayer(marker);
   });
-
   if (points.length) {
     const latlngs = points.map(p => [p.lat, p.lon]);
     const bounds = L.latLngBounds(latlngs);
@@ -560,17 +608,462 @@ function renderMap(points) {
   }
 }
 
+
+// Replace your old populateSourceSelect() with this.
+// It preserves the user's current selection if possible.
+function populateSourceSelect() {
+  const prev = sourceSelect.value;
+  sourceSelect.innerHTML = '';
+  SOURCES.forEach((s) => {
+    const opt = document.createElement('option');
+    opt.value = s.name;
+    opt.text = s.name;
+    sourceSelect.appendChild(opt);
+  });
+
+  // Try to keep previous selection if still available; otherwise pick first.
+  if (prev && Array.from(sourceSelect.options).some(o => o.value === prev)) {
+    sourceSelect.value = prev;
+  } else if (SOURCES.length) {
+    // if nothing selected or previous not present, choose first source
+    sourceSelect.value = SOURCES[0].name;
+  }
+}
+
+/* On source change: set fullData to selected source and re-render */
+function onSourceChange() {
+  const name = sourceSelect.value;
+  if (!name) return;
+  fullData = fullDataMap[name] ? fullDataMap[name].slice() : [];
+  // update KPIs from last row of selected source if present
+  const cfg = SOURCES.find(s => s.name === name);
+  if (fullData && fullData.length && cfg) {
+    updateKPIsFromFullRow(fullData[fullData.length - 1].raw, cfg.columns);
+  } else {
+    clearKPIs();
+  }
+  applyRangeAndResolutionAndRender();
+}
+
+/* Main loader */
+async function loadAll() {
+  console.info('[loadAll] starting CSV fetch');
+  setStatus('Fetching CSVs...', true, true);
+  try {
+    const promises = SOURCES.map(s => fetchCsv(s.url).then(rows => ({source: s, rows})).catch(err => ({source: s, error: err})));
+    const results = await Promise.all(promises);
+    console.info('[loadAll] fetch results', results);
+    handleResults(results);
+    setStatus('Live Connected', false, true);
+    document.getElementById('lastUpdated').innerText = new Date().toLocaleTimeString();
+  } catch (err) {
+    console.error('[loadAll] error', err);
+    setStatus('Connection Failed: ' + (err.message || err), false, false);
+  }
+}
+
+// Replace existing handleResults with this diagnostic version
+function handleResults(results) {
+  console.group('[diagnose] handleResults start');
+  fullDataMap = {};
+  timeseriesData = {};
+  let latlonDetected = false;
+  const mapPoints = [];
+
+  // helper: count plausibility failures for a source
+  function diagnoseFull(rows, s) {
+    const total = rows.length;
+    const parsedTime = rows.map(r => ({ raw: r, t: normalizeTimestamp(r[s.tsCol]) }));
+    const validTimeCount = parsedTime.filter(p => p.t !== null).length;
+
+    // window guard counts
+    const now = Date.now();
+    const minAllowed = now - (1000 * 60 * 60 * 24 * 365 * 10);
+    const maxAllowed = now + (1000 * 60 * 60 * 24 * 365 * 2);
+    const inWindowCount = parsedTime.filter(p => p.t !== null && p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed).length;
+
+    // plausibility checks: run the same logic as sanitizeFullRows but count rejections
+    const parsed = rows.map(r => {
+      return {
+        raw: r,
+        t: normalizeTimestamp(r[s.tsCol]),
+        ph: safeNum(r[s.columns.ph]),
+        ntu: safeNum(r[s.columns.ntu]),
+        temp: safeNum(r[s.columns.temp]),
+        ec: safeNum(r[s.columns.ec]),
+        tss: safeNum(r[s.columns.tss]),
+        vsys: safeNum(r[s.columns.vsys])
+      };
+    });
+
+    const afterTime = parsed.filter(p => p.t !== null);
+    const afterWindow = afterTime.filter(p => p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed);
+
+    // plausibility check counts
+    const fail_ph = afterWindow.filter(p => !isNaN(p.ph) && (p.ph < 0 || p.ph > 14)).length;
+    const fail_temp = afterWindow.filter(p => !isNaN(p.temp) && (p.temp < -20 || p.temp > 60)).length;
+    const fail_ec = afterWindow.filter(p => !isNaN(p.ec) && (p.ec < 0 || p.ec > 2000)).length;
+    const fail_ntu = afterWindow.filter(p => !isNaN(p.ntu) && (p.ntu < 0 || p.ntu > 2000)).length;
+    const fail_tss = afterWindow.filter(p => !isNaN(p.tss) && (p.tss < 0 || p.tss > 10000)).length;
+    const fail_vsys = afterWindow.filter(p => !isNaN(p.vsys) && (p.vsys < 0 || p.vsys > 10)).length;
+
+    // final cleaned
+    const cleaned = sanitizeFullRows(rows, s.tsCol, s.columns);
+    return {
+      total,
+      headerKeys: rows && rows[0] ? Object.keys(rows[0]) : [],
+      sampleRaw: rows && rows[0] ? rows[0] : null,
+      validTimeCount,
+      inWindowCount,
+      fail_ph, fail_temp, fail_ec, fail_ntu, fail_tss, fail_vsys,
+      cleanedCount: cleaned.length,
+      cleanedSample: cleaned.length ? cleaned[0].raw : null,
+      cleanedArray: cleaned
+    };
+  }
+
+  results.forEach(res => {
+    const s = res.source;
+    if (res.error) {
+      console.warn('[diagnose] source error', s.name, res.error);
+      return;
+    }
+    console.groupCollapsed(`[diagnose] source: ${s.name}`);
+    console.log('raw rows:', res.rows.length);
+    console.log('first row (preview):', res.rows[0]);
+    console.log('headers:', res.rows[0] ? Object.keys(res.rows[0]) : 'no rows');
+
+    if (s.type === 'full') {
+      const diag = diagnoseFull(res.rows, s);
+      console.log('diagnostics:', diag);
+      fullDataMap[s.name] = diag.cleanedArray; // store cleaned array
+      // collect lat/lon if provided
+      if (s.columns && s.columns.lat && s.columns.lon) {
+        diag.cleanedArray.forEach(c => {
+          const lat = parseFloat(c.raw[s.columns.lat]);
+          const lon = parseFloat(c.raw[s.columns.lon]);
+          if (!isNaN(lat) && !isNaN(lon)) {
+            latlonDetected = true;
+            mapPoints.push({ lat, lon, ts: c.t, source: s.name });
+          }
+        });
+      }
+    } else if (s.type === 'timeseries') {
+      const cleaned = sanitizeTimeSeriesRows(res.rows, s.tsCol, s.valueCol);
+      console.log('timeseries cleaned count:', cleaned.length);
+      console.log('timeseries headers:', res.rows[0] ? Object.keys(res.rows[0]) : []);
+      timeseriesData[s.name] = { cfg: s, data: cleaned };
+    }
+    console.groupEnd();
+  });
+
+  // KEEP user's selection if possible
+  const prevSelection = sourceSelect.value || (SOURCES[0] && SOURCES[0].name);
+  populateSourceSelect(); // will preserve prev if possible (your fixed function)
+
+  // Ensure fullData is set to chosen source (not overwritten)
+  const chosen = sourceSelect.value || prevSelection;
+  if (chosen && fullDataMap[chosen]) {
+    fullData = fullDataMap[chosen].slice();
+    const cfg = SOURCES.find(x => x.name === chosen);
+    if (fullData.length && cfg) updateKPIsFromFullRow(fullData[fullData.length - 1].raw, cfg.columns);
+    else {
+      clearKPIs();
+      setStatus(`No cleaned rows for ${chosen} — check headers or plausibility filters.`, false, false);
+    }
+  } else {
+    // no cleaned data for chosen source
+    fullData = [];
+    clearKPIs();
+    setStatus('No cleaned data available for the selected source.', false, false);
+  }
+
+  // Render charts for the chosen source
+  applyRangeAndResolutionAndRender();
+
+  // Map handling
+  if (latlonDetected && mapPoints.length) {
+    document.getElementById('map').style.display = 'block';
+    document.getElementById('mapMsg').style.display = 'none';
+    renderMap(mapPoints);
+  } else {
+    if (map) { map.remove(); map = null; markersLayer = null; }
+    document.getElementById('map').style.display = 'none';
+    document.getElementById('mapMsg').style.display = 'block';
+  }
+
+  console.groupEnd();
+}
+
+/* Apply range/resolution and render (keeps analytics auto-run) */
+function applyRangeAndResolutionAndRender() {
+  const rangeVal = timeRangeSelect.value === 'all' ? 'all' : Number(timeRangeSelect.value);
+  const resVal = resolutionSelect.value;
+
+  // prepare and render main charts for current fullData
+  if (fullData && fullData.length) {
+    const prepared = filterAndPrepareFullForPlot(fullData, rangeVal, resVal);
+    if (prepared) {
+      renderMainCharts(prepared.labels, prepared.phs, prepared.ntus, prepared.temps, prepared.ecs, prepared.vsys);
+    } else {
+      if (charts.phNtu) { charts.phNtu.destroy(); charts.phNtu = null; }
+      if (charts.tempEc) { charts.tempEc.destroy(); charts.tempEc = null; }
+      if (charts.vsys) { charts.vsys.destroy(); charts.vsys = null; }
+    }
+  } else {
+    if (charts.phNtu) { charts.phNtu.destroy(); charts.phNtu = null; }
+    if (charts.tempEc) { charts.tempEc.destroy(); charts.tempEc = null; }
+    if (charts.vsys) { charts.vsys.destroy(); charts.vsys = null; }
+  }
+
+  // render small charts & combined for timeseriesData (if any) — unchanged from prior behavior
+  const smallContainer = document.getElementById('smallChartsContainer');
+  smallContainer.innerHTML = '';
+  if (Object.keys(timeseriesData).length) {
+    const combinedDatasets = [];
+    Object.values(timeseriesData).forEach((entry, idx) => {
+      const cfg = entry.cfg;
+      const cleaned = entry.data;
+      if (!cleaned || !cleaned.length) {
+        const card = document.createElement('div');
+        card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700 placeholder';
+        card.innerHTML = `<div class="text-sm text-slate-200 font-medium">${cfg.name}</div><div class="text-xs text-slate-400 mt-2">No valid data</div>`;
+        smallContainer.appendChild(card);
+        return;
+      }
+      const now = Date.now();
+      const inRange = (rangeVal === 'all') ? cleaned.slice() : cleaned.filter(p => p.t.getTime() >= (now - rangeVal));
+      if (!inRange.length) {
+        const card = document.createElement('div');
+        card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700 placeholder';
+        card.innerHTML = `<div class="text-sm text-slate-200 font-medium">${cfg.name}</div><div class="text-xs text-slate-400 mt-2">No points in range</div>`;
+        smallContainer.appendChild(card);
+        return;
+      }
+      const prepared = (resVal === 'auto') ? inRange : resampleTimeseries(inRange, Number(resVal));
+      const labels = prepared.map(p => p.t);
+      const values = prepared.map(p => p.v);
+      const card = document.createElement('div');
+      card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700';
+      const canvasId = 'miniChart_' + idx;
+      card.innerHTML = `<div class="flex justify-between items-center mb-2"><div class="text-sm text-slate-200 font-medium">${cfg.name}</div><div class="text-xs text-slate-400">${labels.length} pts</div></div><div class="mini-chart"><canvas id="${canvasId}"></canvas></div>`;
+      smallContainer.appendChild(card);
+
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      const minTs = Math.min(...labels.map(d=>d.getTime()));
+      const maxTs = Math.max(...labels.map(d=>d.getTime()));
+      const tickCfg = chooseTimeUnitAndTicks(minTs, maxTs);
+      const miniChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: labels, datasets: [{ label: cfg.name, data: values, borderColor: cfg.color || '#60a5fa', tension: 0.3, pointRadius: 0 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: {
+            x: { type: 'time', time: { unit: tickCfg.unit }, ticks: { color: '#94a3b8', maxTicksLimit: tickCfg.maxTicks }, grid: { display: false } },
+            y: { ticks: { color: '#cbd5e1' } }
+          },
+          plugins: { legend: { display: false } }
+        }
+      });
+      smallCharts.push(miniChart);
+      const combinedData = prepared.map(p => ({ x: p.t, y: p.v }));
+      combinedDatasets.push({ label: cfg.name, data: combinedData, borderColor: cfg.color || '#60a5fa', tension: 0.2, fill: false });
+    });
+    if (combinedDatasets.length) renderCombinedChart(combinedDatasets);
+    else if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
+  } else {
+    if (charts.combined) { charts.combined.destroy(); charts.combined = null; }
+  }
+
+  // auto-run analytics after render
+  try { setTimeout(() => runAnalytics(), 150); } catch(e) { console.warn(e); }
+}
+
+/* AI Analytics code (same as previous local implementation) */
+function median(arr) {
+  const s = arr.slice().sort((a,b)=>a-b);
+  const n = s.length;
+  if (n === 0) return NaN;
+  const mid = Math.floor(n/2);
+  return n % 2 ? s[mid] : (s[mid-1] + s[mid]) / 2;
+}
+function meanStd(arr) {
+  const clean = arr.filter(x => isFinite(x));
+  const n = clean.length;
+  if (!n) return {mean: NaN, std: NaN};
+  const mean = clean.reduce((a,b) => a+b,0)/n;
+  const std = Math.sqrt(clean.reduce((a,b) => a + (b-mean)*(b-mean), 0)/n);
+  return {mean, std};
+}
+function linearRegression(xs, ys) {
+  const n = xs.length;
+  if (n < 2) return {slope: 0, intercept: isFinite(ys[ys.length-1]) ? ys[ys.length-1] : 0};
+  const meanX = xs.reduce((a,b)=>a+b,0)/n;
+  const meanY = ys.reduce((a,b)=>a+b,0)/n;
+  let num = 0, den = 0;
+  for (let i=0;i<n;i++) { const dx = xs[i]-meanX; num += dx*(ys[i]-meanY); den += dx*dx; }
+  if (den === 0) return {slope: 0, intercept: meanY};
+  const slope = num/den;
+  const intercept = meanY - slope*meanX;
+  return {slope, intercept};
+}
+function detectAnomaliesArray(values, timestamps, zThreshold = 3) {
+  const clean = values.map((v,i) => ({v, t: timestamps[i], idx: i})).filter(x => isFinite(x.v));
+  if (!clean.length) return [];
+  const vs = clean.map(x => x.v);
+  const {mean, std} = meanStd(vs);
+  const zAnoms = clean.filter(x => Math.abs((x.v-mean)/(std||1e-9)) >= zThreshold).map(x => ({type:'z', value: x.v, ts: x.t}));
+  const sorted = vs.slice().sort((a,b)=>a-b);
+  const q1 = sorted[Math.floor((sorted.length-1)/4)];
+  const q3 = sorted[Math.ceil((sorted.length-1)*3/4)];
+  const iqr = q3 - q1;
+  const low = q1 - 1.5*iqr;
+  const high = q3 + 1.5*iqr;
+  const iqrAnoms = clean.filter(x => x.v < low || x.v > high).map(x => ({type:'iqr', value: x.v, ts: x.t}));
+  const key = a => `${a.ts.getTime()}|${a.value}`;
+  const map = new Map();
+  zAnoms.concat(iqrAnoms).forEach(a => { map.set(key(a), a); });
+  return Array.from(map.values()).sort((a,b)=>a.ts - b.ts);
+}
+function forecastLinear(timestamps, values, steps = 6, stepMs = 60*60*1000) {
+  const xs = [], ys = [];
+  for (let i=0;i<timestamps.length;i++) {
+    if (!isFinite(values[i])) continue;
+    xs.push(timestamps[i].getTime());
+    ys.push(values[i]);
+  }
+  if (!xs.length) return [];
+  const lr = linearRegression(xs, ys);
+  const lastTs = Math.max(...xs);
+  const out = [];
+  for (let s=1;s<=steps;s++) {
+    const t = lastTs + s*stepMs;
+    const y = lr.slope * t + lr.intercept;
+    out.push({t: new Date(t), y});
+  }
+  return out;
+}
+document.getElementById('runAnalyticsBtn').addEventListener('click', runAnalytics);
+document.getElementById('genLLMSummaryBtn').addEventListener('click', generateLLMSummary);
+function runAnalytics() {
+  const rangeVal = timeRangeSelect.value === 'all' ? 'all' : Number(timeRangeSelect.value);
+  const resVal = resolutionSelect.value;
+  const prepared = filterAndPrepareFullForPlot(fullData, rangeVal, resVal);
+  if (!prepared) {
+    document.getElementById('analyticsSummary').innerText = 'No data in selected range.';
+    document.getElementById('anomaliesList').innerText = '';
+    document.getElementById('forecastList').innerText = '';
+    return;
+  }
+  const summaryParts = [];
+  const anomaliesOut = [];
+  const forecastsOut = [];
+  const metrics = [
+    {key:'ph', label:'pH'},
+    {key:'ntu', label:'Turbidity (NTU)'},
+    {key:'temp', label:'Temperature (°C)'},
+    {key:'ec', label:'EC (mS/cm)'},
+    {key:'vsys', label:'Vsys (V)'}
+  ];
+  metrics.forEach(m => {
+    const arr = prepared.raw.map(x => (isFinite(x[m.key]) ? x[m.key] : NaN));
+    const ts = prepared.raw.map(x => x.t);
+    const cleanIdx = arr.map((v,i)=> ({v,i})).filter(x=>isFinite(x.v)).map(x=>x.i);
+    const values = cleanIdx.map(i => arr[i]);
+    const times = cleanIdx.map(i => ts[i]);
+    const cnt = values.length;
+    const med = median(values);
+    const {mean, std} = meanStd(values);
+    const min = values.length ? Math.min(...values) : NaN;
+    const max = values.length ? Math.max(...values) : NaN;
+    let slopePerHour = 0;
+    if (times.length >= 2) {
+      const xs = times.map(d=>d.getTime());
+      const lr = linearRegression(xs, values);
+      slopePerHour = lr.slope * 1000 * 60 * 60;
+    }
+    summaryParts.push(`${m.label}: last=${(values.length?values[values.length-1].toFixed(3):'—')}, n=${cnt}, mean=${isFinite(mean)?mean.toFixed(3):'—'}, med=${isFinite(med)?med.toFixed(3):'—'}, std=${isFinite(std)?std.toFixed(3):'—'}, range=[${isFinite(min)?min.toFixed(3):'—'}..${isFinite(max)?max.toFixed(3):'—'}], slope/hr=${slopePerHour>=0?'+':''}${isFinite(slopePerHour)?slopePerHour.toFixed(4):'—'}`);
+    const anoms = detectAnomaliesArray(values, times);
+    if (anoms.length) anomaliesOut.push({metric:m.label, list: anoms.map(a=> ({ts: a.ts, value: a.value}) )});
+    let stepMs = 3600000;
+    if (times.length >= 3) {
+      const deltas = [];
+      for (let i=1;i<times.length;i++) deltas.push(times[i].getTime()-times[i-1].getTime());
+      stepMs = median(deltas);
+    }
+    const f = forecastLinear(times, values, 6, stepMs);
+    forecastsOut.push({metric:m.label, forecast: f});
+  });
+  document.getElementById('analyticsSummary').innerText = summaryParts.join('\n');
+  const anEl = document.getElementById('anomaliesList');
+  if (!anomaliesOut.length) anEl.innerText = 'No anomalies detected (z-score/IQR) in selected range.';
+  else anEl.innerHTML = anomaliesOut.map(a => `<div class="mb-2"><strong>${a.metric}</strong><div class="text-xs text-slate-300">${a.list.map(x=>`${x.ts.toLocaleString()} → ${x.value}`).join('<br/>')}</div></div>`).join('');
+  const fEl = document.getElementById('forecastList');
+  fEl.innerHTML = forecastsOut.map(f => {
+    const lines = f.forecast.map(pt => `${pt.t.toLocaleString()} → ${pt.y.toFixed(3)}`);
+    return `<div class="mb-2"><strong>${f.metric}</strong><div class="text-xs text-slate-300">${lines.join('<br/>')}</div></div>`;
+  }).join('');
+}
+function buildSummaryPrompt() {
+  const summaryText = document.getElementById('analyticsSummary').innerText || '';
+  const anomaliesText = document.getElementById('anomaliesList').innerText || 'None';
+  const forecastText = document.getElementById('forecastList').innerText || '';
+  return `You are an expert telemetry analyst. Summarize these telemetry analytics in 4-6 concise bullet points for an operations dashboard operator:\n\nAnalytics:\n${summaryText}\n\nAnomalies:\n${anomaliesText}\n\nForecast:\n${forecastText}\n\nInclude: main risks, urgent anomalies, suggested checks or mitigations, and a short plain-language headline.`;
+}
+function generateHeuristicSummary() {
+  const s = document.getElementById('analyticsSummary').innerText || '';
+  const lines = s.split('\n').slice(0,5);
+  const headline = lines.map(l => l.split(':')[0]).join(', ') + ' — see details';
+  const bullets = lines.slice(0,4).map(l => '- ' + l);
+  return `${headline}\n\n${bullets.join('\n')}\n\n(Heuristic summary; provide an API key for an LLM-generated narrative.)`;
+}
+async function generateLLMSummary() {
+  runAnalytics();
+  const key = document.getElementById('openaiKey').value.trim();
+  if (!key) {
+    document.getElementById('analyticsSummary').innerText = generateHeuristicSummary();
+    return;
+  }
+  const prompt = buildSummaryPrompt();
+  setStatus('Generating LLM summary...', true, true);
+  try {
+    const body = {
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 400,
+      temperature: 0.2
+    };
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      const txt = await resp.text();
+      throw new Error('OpenAI error: ' + resp.status + ' ' + txt.slice(0,200));
+    }
+    const data = await resp.json();
+    const text = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) ? data.choices[0].message.content : JSON.stringify(data);
+    document.getElementById('analyticsSummary').innerText = text;
+    setStatus('LLM summary ready', false, true);
+  } catch (err) {
+    console.error('LLM error', err);
+    setStatus('LLM error: ' + (err.message || err), false, false);
+    document.getElementById('analyticsSummary').innerText = generateHeuristicSummary();
+  }
+}
+
+/* Timer & init */
 function resetTimer() {
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(loadAll, REFRESH_INTERVAL * 1000);
 }
-
-/* Init */
 window.addEventListener('load', () => {
   if (!SOURCES || !SOURCES.length) {
     setStatus('No CSV configured — edit SOURCES in the file.', false, false);
     return;
   }
+  populateSourceSelect();
   loadAll();
   resetTimer();
 });
