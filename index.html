@@ -1,935 +1,895 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AQUASENTRA Telemetry Dashboard — Refactored with Device Status</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered IoT Dashboard</title>
+    
+    <!-- Fonts & External Libraries -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- TensorFlow.js for AI Analytics -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
 
-  <!-- Tailwind CSS (dev CDN ok for testing) -->
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Chart.js + date adapter -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-
-  <!-- PapaParse -->
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-
-  <!-- Leaflet (optional map) -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <style>
-    body { background-color: #0f172a; color: #f8fafc; font-family: ui-sans-serif, system-ui, sans-serif; }
-    .kpi { min-height: 3.25rem; }
-    .mini-chart { height: 160px; }
-    .spinner { width: 1rem; height: 1rem; border: 3px solid rgba(255,255,255,0.08); border-top-color: #60a5fa; border-radius: 50%; animation: spin .8s linear infinite; display:inline-block; margin-left:.5rem; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    #map { height: 260px; border-radius: 0.5rem; }
-    .placeholder { color: #94a3b8; font-size: .9rem; }
-    .select-sm { padding: .25rem .5rem; border-radius: .375rem; background: rgba(148,163,184,0.06); color: #cbd5e1; border: 1px solid #334155; }
-    #refreshingList { margin-left: .5rem; font-size: 0.78rem; color: #c7f9cc; }
-    #refreshingList.hide { display: none; }
-    .device-status { display:inline-flex; align-items:center; gap:0.5rem; padding:0.25rem 0.5rem; border-radius:0.375rem; font-size:0.78rem; font-weight:600; }
-    .device-status .dot { width:0.6rem; height:0.6rem; border-radius:50%; display:inline-block; }
-  </style>
-</head>
-<body class="p-4 md:p-8">
-  <div class="max-w-7xl mx-auto space-y-6">
-    <!-- Header -->
-    <header class="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-700 gap-4">
-      <div>
-        <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-white">🌊 AQUASENTRA Telemetry Station</h1>
-        <p class="text-sm text-slate-400">Pico2W Live Water Quality Monitoring | Product of UiTM Sarawak</p>
-      </div>
-
-      <div class="flex items-center gap-3">
-        <span id="statusIndicator" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300">
-          <span id="statusText">● Loading Data...</span>
-          <span id="statusSpinner" class="spinner"></span>
-        </span>
-
-        <!-- Device status block -->
-        <div id="deviceStatusBlock" class="device-status" style="background: rgba(148,163,184,0.04); color:#cbd5e1;">
-          <span id="deviceStatusDot" class="dot" style="background:#9ca3af"></span>
-          <span id="deviceStatusText">No data</span>
-          <small id="deviceLastData" style="color:#94a3b8; margin-left:0.5rem; font-weight:400;"></small>
-        </div>
-
-        <!-- refreshing indicator -->
-        <div id="refreshingList" class="hide"></div>
-
-        <div class="flex items-center gap-2">
-          <label class="text-xs text-slate-400 mr-1">Source</label>
-          <select id="sourceSelect" class="select-sm text-sm"></select>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <label class="text-xs text-slate-400 mr-1">Range</label>
-          <select id="timeRangeSelect" class="select-sm text-sm">
-            <option value="3600000">1h</option>
-            <option value="21600000">6h</option>
-            <option value="43200000">12h</option>
-            <option value="86400000">24h</option>
-            <option value="604800000">7d</option>
-            <option value="2592000000">30d</option>
-            <option value="7776000000" selected>90d</option>
-            <option value="15552000000">180d</option>
-            <option value="31536000000">1y</option>
-            <option value="all">All</option>
-          </select>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <label class="text-xs text-slate-400 mr-1">Resolution</label>
-          <select id="resolutionSelect" class="select-sm text-sm">
-            <option value="auto" selected>Auto</option>
-            <option value="60">1m</option>
-            <option value="300">5m</option>
-            <option value="900">15m</option>
-            <option value="3600">1h</option>
-            <option value="21600">6h</option>
-            <option value="86400">1d</option>
-          </select>
-        </div>
-
-        <button id="refreshBtn" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 transition rounded-md text-sm font-medium">
-          Refresh
-        </button>
-
-        <div class="flex items-center gap-2 ml-2">
-          <label class="text-xs text-slate-400">Auto-refresh (s)</label>
-          <input id="refreshInterval" type="number" min="5" value="30" class="w-20 rounded-md px-2 py-1 bg-slate-800/70 text-slate-100 text-sm" />
-        </div>
-      </div>
-    </header>
-
-    <!-- KPI Row -->
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4" id="kpiRow">
-      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
-        <p class="text-xs text-slate-400 font-medium">Latest pH</p>
-        <p id="kpiPh" class="text-2xl font-bold text-emerald-400 mt-1">--</p>
-      </div>
-      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
-        <p class="text-xs text-slate-400 font-medium">Turbidity (NTU)</p>
-        <p id="kpiNtu" class="text-2xl font-bold text-amber-400 mt-1">--</p>
-      </div>
-      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
-        <p class="text-xs text-slate-400 font-medium">Temp (°C)</p>
-        <p id="kpiTemp" class="text-2xl font-bold text-cyan-400 mt-1">--</p>
-      </div>
-      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
-        <p class="text-xs text-slate-400 font-medium">EC (mS/cm)</p>
-        <p id="kpiEc" class="text-2xl font-bold text-violet-400 mt-1">--</p>
-      </div>
-      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
-        <p class="text-xs text-slate-400 font-medium">TSS (mg/L)</p>
-        <p id="kpiTss" class="text-2xl font-bold text-pink-400 mt-1">--</p>
-      </div>
-      <div class="bg-slate-800/70 p-4 rounded-xl border border-slate-700 kpi">
-        <p class="text-xs text-slate-400 font-medium">Supply (Vsys)</p>
-        <p id="kpiVsys" class="text-2xl font-bold text-sky-400 mt-1">--</p>
-      </div>
-    </div>
-
-    <!-- Charts & panels -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div class="space-y-6">
-        <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
-          <h2 class="text-base font-semibold text-slate-200 mb-4">pH & Turbidity (NTU) Trends</h2>
-          <div class="relative h-72">
-            <canvas id="chartPhNtu"></canvas>
-          </div>
-        </div>
-
-        <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
-          <h2 class="text-base font-semibold text-slate-200 mb-4">Temperature & Electrical Conductivity</h2>
-          <div class="relative h-72">
-            <canvas id="chartTempEc"></canvas>
-          </div>
-        </div>
-
-        <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
-          <h2 class="text-base font-semibold text-slate-200 mb-4">System Battery / Supply Voltage (Vsys)</h2>
-          <div class="relative h-64">
-            <canvas id="chartVsys"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <div class="space-y-6">
-        <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
-          <h2 class="text-base font-semibold text-slate-200 mb-4">Sources / Small Charts </h2>
-              <div id="sourceName" class="text-slate-400 text-sm mb-2"> Loading Source Name ...</div>
-
-          <div id="smallChartsContainer" class="grid grid-cols-1 gap-4"> </div>
-        </div>
-
-        <div class="bg-slate-800/70 p-5 rounded-xl border border-slate-700">
-          <h2 class="text-base font-semibold text-slate-200 mb-4">Map (if lat/lon present)</h2>
-          <div id="mapMsg" class="text-slate-400 text-sm mb-2">No lat/lon columns detected yet.</div>
-          <div id="map" style="display:none;"></div>
-        </div>
-
-        <!-- Analytics -->
-        <div id="analyticsPanel" class="bg-slate-800/70 p-5 rounded-xl border border-slate-700 mt-6">
-          <div class="flex items-start justify-between">
-            <div>
-              <h3 class="text-lg font-semibold text-slate-200">AI Analytics</h3>
-              <p class="text-sm text-slate-400">On-device analytics: stats, anomalies, trends, forecast. Use LLM option for natural-language summary (optional).</p>
-            </div>
-            <div class="flex gap-2 items-center">
-              <button id="runAnalyticsBtn" class="px-3 py-1 bg-blue-600 rounded text-sm">Compute</button>
-              <button id="genLLMSummaryBtn" class="px-3 py-1 bg-emerald-600 rounded text-sm">LLM Summary</button>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-            <div class="col-span-2">
-              <div id="analyticsSummary" class="text-sm text-slate-300 whitespace-pre-wrap"></div>
-            </div>
-            <div>
-              <label class="text-xs text-slate-400">OpenAI API Key (optional)</label>
-              <input id="openaiKey" type="password" class="w-full mt-1 p-2 rounded bg-slate-900/60 text-slate-100 text-sm" placeholder="sk-..." />
-              <div class="text-xs text-slate-400 mt-1">If provided, LLM summaries will be requested from OpenAI. Do not paste sensitive keys on shared devices.</div>
-            </div>
-          </div>
-
-          <div class="mt-4">
-            <h4 class="text-sm font-medium text-slate-200 mb-2">Detected anomalies</h4>
-            <div id="anomaliesList" class="text-sm text-rose-300"></div>
-          </div>
-
-          <div class="mt-4">
-            <h4 class="text-sm font-medium text-slate-200 mb-2">Forecast (linear, next steps)</h4>
-            <div id="forecastList" class="text-sm text-slate-300"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <footer class="pt-4 text-center text-xs text-slate-500">
-      Last synced: <span id="lastUpdated">Never</span> | Hosted on GitHub Pages
-    </footer>
-  </div>
-
-<script>
-/* -------------------- CONFIG -------------------- */
-const LOCALSTORAGE_KEY = 'aq_selected_source_v1';
-// thresholds (adjustable)
-const SLEEP_THRESHOLD_MS = 0.25 * 60 * 60 * 1000; // 15 minute (device pushes hourly, then sleeps)
-const OFFLINE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours considered offline
-
-const SOURCES = [
-  {
-    name: "N4P4 (Primary)",
-    type: "full",
-    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQWU5MBW0yYFy6v4Vmzlc4lDB1YvDJbTGeEOM6NJ2MmnFqgF8H3UFjNnolRMQe-MkUzjG8nw3ToHGzr/pub?gid=0&single=true&output=csv",
-    tsCol: "timestamp",
-    columns: { ph: "ph", ntu: "ntu", temp: "temp", ec: "ec", tss: "tss", vsys: "vsys" },
-    color: "#60a5fa"
-  },
-  {
-    name: "N3P3 (RoboPico)",
-    type: "full",
-    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTqPhitjf7o0139ms1ym2tDKFveuEZc6BI3PHvNLi12-QHe5_Gqc_dnmChmhkkyY3alZ_WEFz_peZKC/pub?gid=0&single=true&output=csv",
-    tsCol: "timestamp",
-    columns: { ph: "ph", ntu: "ntu", temp: "temp", ec: "ec", tss: "tss", vsys: "vsys" },
-    color: "#f97316"
-  },
-  {
-    name: "N2P1",
-    type: "full",
-    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTuukD0C8PQhGiU1ckSKlCe8p_7CXL9M5iV9EiALhVj8aNsRJ1_c5Muur0FyIOP6VnU9DBKNrAGJu4e/pub?gid=0&single=true&output=csv",
-    tsCol: "timestamp",
-    columns: { ph: "ph", ntu: "ntu", temp: "temp", ec: "ec", tss: "tss", vsys: "vsys" },
-    color: "#34d399"
-  },
-  {
-    name: "N1P5",
-    type: "full",
-    url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRFKFKU2PhwYFXvE3OG7JHhG6JLMBYroVmXJ3yX8Shuf5OpOJT-S7YtavspJiwfpq4K6tXKkiWb6_of/pub?gid=0&single=true&output=csv",
-    tsCol: "timestamp",
-    columns: { ph: "ph", ntu: "ntu", temp: "temp", ec: "ec", tss: "tss", vsys: "vsys" },
-    color: "#d946ef"
-  }
-];
-
-/* -------------------- STATE -------------------- */
-const state = {
-  fullDataMap: {},
-  timeseriesData: {},
-  selectedSourceName: localStorage.getItem(LOCALSTORAGE_KEY) || (SOURCES[0] && SOURCES[0].name),
-  previousLastTimestamps: {}, // name -> Date of last known data (used to detect new pushes)
-  currentFullData: [],
-  charts: { phNtu: null, tempEc: null, vsys: null, combined: null },
-  smallCharts: [],
-  map: null,
-  markersLayer: null,
-  refreshTimer: null,
-  REFRESH_INTERVAL: Math.max(5, Number(document.getElementById('refreshInterval').value || 30))
-};
-
-/* -------------------- REFS -------------------- */
-const refs = {
-  sourceSelect: document.getElementById('sourceSelect'),
-  timeRangeSelect: document.getElementById('timeRangeSelect'),
-  resolutionSelect: document.getElementById('resolutionSelect'),
-  refreshBtn: document.getElementById('refreshBtn'),
-  refreshInterval: document.getElementById('refreshInterval'),
-  refreshingListEl: document.getElementById('refreshingList'),
-  statusText: document.getElementById('statusText'),
-  statusSpinner: document.getElementById('statusSpinner'),
-  lastUpdated: document.getElementById('lastUpdated'),
-  smallChartsContainer: document.getElementById('smallChartsContainer'),
-  analyticsSummary: document.getElementById('analyticsSummary'),
-  anomaliesList: document.getElementById('anomaliesList'),
-  forecastList: document.getElementById('forecastList'),
-  deviceStatusText: document.getElementById('deviceStatusText'),
-  deviceStatusDot: document.getElementById('deviceStatusDot'),
-  deviceLastData: document.getElementById('deviceLastData'),
-  kpiPh: document.getElementById('kpiPh'),
-  kpiNtu: document.getElementById('kpiNtu'),
-  kpiTemp: document.getElementById('kpiTemp'),
-  kpiEc: document.getElementById('kpiEc'),
-  kpiTss: document.getElementById('kpiTss'),
-  kpiVsys: document.getElementById('kpiVsys')
-};
-
-/* -------------------- UTILITIES -------------------- */
-function normalizeTimestamp(raw) {
-  if (raw === null || raw === undefined || raw === "") return null;
-  if (raw instanceof Date) return isNaN(raw) ? null : raw;
-
-  let s = (typeof raw === 'string') ? raw.trim() : raw;
-
-  if (typeof raw === 'number' || (typeof s === 'string' && s !== '' && !isNaN(Number(s)))) {
-    const n = Number(s);
-    if (n > 1e12) return new Date(n);
-    if (n > 1e9 && n < 1e12) return new Date(n * 1000);
-    const dnum = new Date(n);
-    if (!isNaN(dnum)) return dnum;
-  }
-
-  let d = new Date(s);
-  if (!isNaN(d)) return d;
-
-  d = new Date(s.replace(' ', 'T'));
-  if (!isNaN(d)) return d;
-
-  const slashMatch = (typeof s === 'string') && s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:[ T](.*))?$/);
-  if (slashMatch) {
-    const a = parseInt(slashMatch[1], 10), b = parseInt(slashMatch[2], 10), yy = slashMatch[3];
-    const tail = slashMatch[4] || '';
-    const year = yy.length === 2 ? ('20' + yy) : yy;
-    const tryUs = `${year}-${String(a).padStart(2,'0')}-${String(b).padStart(2,'0')}` + (tail ? 'T' + tail : '');
-    d = new Date(tryUs);
-    if (!isNaN(d)) return d;
-    const tryEu = `${year}-${String(b).padStart(2,'0')}-${String(a).padStart(2,'0')}` + (tail ? 'T' + tail : '');
-    d = new Date(tryEu);
-    if (!isNaN(d)) return d;
-    if (tail) {
-      const parts = tail.trim().split(/[:\s\-T]/).filter(Boolean).map(x => Number(x));
-      const hh = parts[0] || 0, mm = parts[1] || 0, ss = parts[2] || 0;
-      let dt = new Date(Number(year), a - 1, b, hh, mm, ss);
-      if (!isNaN(dt)) return dt;
-      dt = new Date(Number(year), b - 1, a, hh, mm, ss);
-      if (!isNaN(dt)) return dt;
-    }
-  }
-
-  if (typeof s === 'string' && s.indexOf('/') !== -1) {
-    d = new Date(s.replace(/\//g, '-'));
-    if (!isNaN(d)) return d;
-  }
-
-  return null;
-}
-function safeNum(v) { if (v === null || v === undefined || v === '') return NaN; const n = Number(String(v).replace(/[, ]+/g,'')); return isNaN(n)?NaN:n; }
-function nowStr() { return new Date().toLocaleTimeString(); }
-function formatTs(ts) { return ts instanceof Date ? ts.toLocaleString() : ''; }
-
-/* -------------------- FETCHING / PARSING -------------------- */
-function fetchCsv(url, timeoutMs = 15000) {
-  return new Promise((resolve, reject) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    fetch(url, { method: 'GET', mode: 'cors', signal: controller.signal })
-      .then(async resp => {
-        clearTimeout(timer);
-        if (!resp.ok) {
-          const txt = await resp.text().catch(()=>'<no body>');
-          return reject(new Error('HTTP ' + resp.status + ' ' + resp.statusText + ' preview:' + txt.slice(0,200)));
+    <!-- Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        app: {
+                            bg: '#030405',
+                            card: '#0F1E56',
+                            accent1: '#6990F2',
+                            accent2: '#588CC4',
+                            border: '#37509D',
+                            muted: '#58585B',
+                            text: { main: '#F4F3F7', secondary: '#A0ADBC' }
+                        }
+                    },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    boxShadow: { 'glow': '0 0 20px rgba(105, 144, 242, 0.15)' }
+                }
+            }
         }
-        const text = await resp.text();
-        if (!text || text.trim().length === 0) return reject(new Error('Empty CSV body'));
-        Papa.parse(text, {
-          header: true,
-          skipEmptyLines: true,
-          dynamicTyping: false,
-          complete: function(results) { if (results && results.data) resolve(results.data); else reject(new Error('CSV parse returned no data')); },
-          error: function(err) { reject(err); }
+    </script>
+
+    <!-- Custom Styles -->
+    <style>
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #030405; }
+        ::-webkit-scrollbar-thumb { background: #37509D; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #588CC4; }
+        .glass-card { transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease; }
+        .glass-card:hover { transform: translateY(-4px); box-shadow: 0 10px 30px -10px rgba(105, 144, 242, 0.2); border-color: #6990F2; }
+        .live-indicator { animation: pulse 2s infinite; }
+        @keyframes pulse { 
+            0% { opacity: 1; box-shadow: 0 0 0 0 rgba(105, 144, 242, 0.7); } 
+            70% { opacity: 0.5; box-shadow: 0 0 0 6px rgba(105, 144, 242, 0); } 
+            100% { opacity: 1; box-shadow: 0 0 0 0 rgba(105, 144, 242, 0); } 
+        }
+        select {
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23A0ADBC' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 0.5rem center;
+            background-repeat: no-repeat;
+            background-size: 1.5em 1.5em;
+            padding-right: 2.5rem;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+        }
+    </style>
+</head>
+<body class="bg-app-bg text-app-text-main font-sans h-screen w-full flex overflow-hidden selection:bg-app-accent1 selection:text-white">
+
+    <!-- Sidebar -->
+    <aside class="w-20 h-full border-r border-app-border bg-app-bg flex flex-col items-center py-6 flex-shrink-0 z-20">
+        <div class="mb-10 w-10 h-10 rounded-xl bg-app-accent1 flex items-center justify-center shadow-glow">
+            <i data-lucide="cpu" class="text-white w-6 h-6"></i>
+        </div>
+        <nav class="flex flex-col gap-8 w-full items-center flex-1">
+            <a href="#" class="text-app-accent1"><i data-lucide="layout-dashboard" class="w-6 h-6"></i></a>
+            <a href="#" class="text-app-muted hover:text-app-text-main transition-colors"><i data-lucide="server" class="w-6 h-6"></i></a>
+            <a href="#" class="text-app-muted hover:text-app-text-main transition-colors"><i data-lucide="activity" class="w-6 h-6"></i></a>
+        </nav>
+        <div class="mt-auto">
+            <a href="#" class="text-app-muted hover:text-app-text-main transition-colors"><i data-lucide="settings" class="w-6 h-6"></i></a>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col h-full overflow-hidden relative">
+        <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-app-accent1 opacity-[0.03] blur-[100px] pointer-events-none"></div>
+        
+        <!-- Header -->
+        <header class="h-20 border-b border-app-border/50 flex items-center justify-between px-8 z-10 bg-app-bg/80 backdrop-blur-md">
+            <div>
+                <h1 class="text-xl font-semibold tracking-wide">AquaSentra</h1>
+                <p class="text-sm text-app-text-secondary flex items-center gap-2">
+                    <span id="sync-status" class="w-2 h-2 rounded-full bg-app-accent1 live-indicator"></span>
+                    <span id="sync-time">Waiting for data sync...</span>
+                </p>
+            </div>
+            <div class="flex items-center gap-6">
+                <button class="relative text-app-text-secondary hover:text-app-text-main transition-colors">
+                    <i data-lucide="bell" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Dashboard Scrollable Content -->
+        <main class="flex-1 overflow-y-auto p-8 z-10">
+            <div class="grid grid-cols-12 gap-6 max-w-[1600px] mx-auto">
+                
+                <!-- Main Chart Card (Shrunk to col-span-8 to fit AI panel) -->
+                <div class="col-span-12 lg:col-span-8 bg-app-card border border-app-border rounded-xl p-6 glass-card flex flex-col relative overflow-hidden">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                        <div>
+                            <h2 class="text-lg font-medium flex items-center gap-2">
+                                <i data-lucide="line-chart" class="w-5 h-5 text-app-accent1"></i>
+                                Historical Telemetry (<span id="chart-title-metric">Temperature</span>)
+                            </h2>
+                            <p class="text-sm text-app-text-secondary mt-1">Aggregate comparison across 4 sensor nodes</p>
+                        </div>
+                        
+                        <!-- Filters & Controls -->
+                        <div class="flex flex-wrap items-center gap-3">
+                            <div class="flex items-center gap-2">
+                                <select id="chart-metric-selector" class="bg-app-bg border border-app-border text-sm rounded-md pl-3 pr-8 py-1.5 text-app-text-main focus:outline-none focus:border-app-accent1 transition-colors cursor-pointer">
+                                    <option value="temp">Temperature</option>
+                                    <option value="ph">pH Level</option>
+                                    <option value="turbidity">Turbidity</option>
+                                    <option value="ec">EC</option>
+                                    <option value="tss">TSS</option>
+                                    <option value="vsupply">Vsupply</option>
+                                </select>
+                            </div>
+                            
+                            <div class="flex items-center gap-2">
+                                <select id="chart-range-selector" class="bg-app-bg border border-app-border text-sm rounded-md pl-3 pr-8 py-1.5 text-app-text-main focus:outline-none focus:border-app-accent1 transition-colors cursor-pointer">
+                                    <option value="1">Last 1 Hour</option>
+                                    <option value="6">Last 6 Hours</option>
+                                    <option value="24" selected>Last 24 Hours</option>
+                                    <option value="168">Last 7 Days</option>
+                                    <option value="all">All Time</option>
+                                </select>
+                            </div>
+
+                            <div class="flex items-center gap-2">
+                                <select id="chart-resolution-selector" class="bg-app-bg border border-app-border text-sm rounded-md pl-3 pr-8 py-1.5 text-app-text-main focus:outline-none focus:border-app-accent1 transition-colors cursor-pointer">
+                                    <option value="raw">Raw Data</option>
+                                    <option value="hourly">Hourly Average</option>
+                                    <option value="daily">Daily Average</option>
+                                </select>
+                            </div>
+
+                            <button id="force-refresh-btn" class="ml-2 flex items-center gap-2 bg-app-bg border border-app-border hover:border-app-accent1 text-app-text-main text-sm rounded-md px-3 py-1.5 transition-colors group cursor-pointer">
+                                <i data-lucide="refresh-cw" id="refresh-icon" class="w-4 h-4 text-app-accent1 group-hover:text-white transition-colors"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="flex-1 min-h-[300px] relative w-full">
+                        <canvas id="mainChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- TensorFlow AI Analytics Panel -->
+                <div class="col-span-12 lg:col-span-4 bg-app-card border border-app-border rounded-xl p-6 glass-card flex flex-col relative overflow-hidden group">
+                    <div class="absolute -right-4 -top-4 w-32 h-32 bg-app-accent1 opacity-5 rounded-full blur-xl group-hover:opacity-10 transition-opacity"></div>
+                    
+                    <div class="flex justify-between items-start mb-6">
+                        <div>
+                            <h2 id="ai-node-label" class="text-lg font-medium flex items-center gap-2">
+                                <i data-lucide="brain-circuit" class="w-5 h-5 text-app-accent1"></i>
+                                AI Water Quality
+                            </h2>
+                                <span id="node-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-app-muted/20 text-app-muted border border-app-muted/30">
+                                        Loading Node
+                                </span>
+                            <p class="text-xs text-app-text-secondary mt-1">NWQS Malaysia Framework</p>
+                        </div>
+                        <span id="ai-status" class="text-[10px] text-app-muted uppercase font-bold tracking-wider">Model Loading...</span>
+                    </div>
+
+                    <div class="flex flex-col flex-1 justify-center items-center text-center p-4 bg-app-bg/50 rounded-xl border border-app-border/50">
+                        <p class="text-xs text-app-text-secondary uppercase tracking-widest mb-2">Current Status</p>
+                        <h3 id="ai-prediction" class="text-2xl font-bold text-app-text-main mb-3">Initializing</h3>
+                        <span id="ai-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-app-muted/20 text-app-muted border border-app-muted/30">
+                            Awaiting Data
+                        </span>
+                        
+                        <div class="w-full grid grid-cols-2 gap-4 mt-6 border-t border-app-border/50 pt-6">
+                            <div>
+                                <p class="text-xs text-app-text-secondary">AI Confidence</p>
+                                <p id="ai-confidence" class="text-lg font-semibold mt-1 text-app-accent2">--%</p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-app-text-secondary">Model</p>
+                                <p class="text-sm font-semibold mt-1 text-app-text-main">TF DenseNet</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Node Selector & Status Section -->
+                <div class="col-span-12 flex justify-between items-end mt-2 mb-0 border-b border-app-border/50 pb-4">
+                    <div>
+                        <h2 class="text-lg font-medium flex items-center gap-2">
+                            <i data-lucide="radio" class="w-5 h-5 text-app-accent1"></i>
+                            Live Telemetry Cards
+                        </h2>
+                        <p class="text-sm text-app-text-secondary mt-1">Select a node to view its most recent parameters</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="server" class="w-4 h-4 text-app-muted"></i>
+                        <select id="active-node-selector" class="bg-app-bg border border-app-border text-sm rounded-md pl-3 pr-8 py-1.5 text-app-text-main focus:outline-none focus:border-app-accent1 transition-colors cursor-pointer">
+                            <option value="0" selected>Node 1</option>
+                            <option value="1">Node 2</option>
+                            <option value="2">Node 3</option>
+                            <option value="3">Node 4</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Node Status Overview Row -->
+                <div class="col-span-12 grid grid-cols-2 lg:grid-cols-4 gap-4 mb-2">
+                    <!-- Status Card 1 -->
+                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex justify-between items-center">
+                        <div>
+                            <div class="flex items-center gap-2 mb-1">
+                                <span id="status-dot-0" class="w-2 h-2 rounded-full bg-app-muted"></span>
+                                <span class="text-sm font-medium">Node 1</span>
+                            </div>
+                            <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-0">--:--</span></div>
+                        </div>
+                        <span id="status-badge-0" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
+                    </div>
+
+                    <!-- Status Card 2 -->
+                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex justify-between items-center">
+                        <div>
+                            <div class="flex items-center gap-2 mb-1">
+                                <span id="status-dot-1" class="w-2 h-2 rounded-full bg-app-muted"></span>
+                                <span class="text-sm font-medium">Node 2</span>
+                            </div>
+                            <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-1">--:--</span></div>
+                        </div>
+                        <span id="status-badge-1" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
+                    </div>
+
+                    <!-- Status Card 3 -->
+                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex justify-between items-center">
+                        <div>
+                            <div class="flex items-center gap-2 mb-1">
+                                <span id="status-dot-2" class="w-2 h-2 rounded-full bg-app-muted"></span>
+                                <span class="text-sm font-medium">Node 3</span>
+                            </div>
+                            <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-2">--:--</span></div>
+                        </div>
+                        <span id="status-badge-2" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
+                    </div>
+
+                    <!-- Status Card 4 -->
+                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex justify-between items-center">
+                        <div>
+                            <div class="flex items-center gap-2 mb-1">
+                                <span id="status-dot-3" class="w-2 h-2 rounded-full bg-app-muted"></span>
+                                <span class="text-sm font-medium">Node 4</span>
+                            </div>
+                            <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-3">--:--</span></div>
+                        </div>
+                        <span id="status-badge-3" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
+                    </div>
+                </div>
+
+                <!-- Telemetry Cards -->
+                <!-- Card 1: pH -->
+                <div class="col-span-12 md:col-span-4 bg-app-card border border-app-border rounded-xl p-6 glass-card relative overflow-hidden group">
+                    <div class="absolute -right-4 -top-4 w-24 h-24 bg-app-accent1 opacity-5 rounded-full blur-xl"></div>
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="droplet" class="w-4 h-4"></i> pH Level</h3>
+                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                    </div>
+                    <div class="flex items-end gap-3 mt-2">
+                        <span id="val-ph" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span class="text-sm text-app-text-secondary mb-1">pH</span>
+                    </div>
+                </div>
+
+                <!-- Card 2: Turbidity -->
+                <div class="col-span-12 md:col-span-4 bg-app-card border border-app-border rounded-xl p-6 glass-card relative overflow-hidden group">
+                    <div class="absolute -right-4 -top-4 w-24 h-24 bg-app-accent2 opacity-5 rounded-full blur-xl"></div>
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="waves" class="w-4 h-4"></i> Turbidity</h3>
+                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                    </div>
+                    <div class="flex items-end gap-3 mt-2">
+                        <span id="val-turbidity" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span class="text-sm text-app-text-secondary mb-1">NTU</span>
+                    </div>
+                </div>
+
+                <!-- Card 3: Temperature -->
+                <div class="col-span-12 md:col-span-4 bg-app-card border border-app-border rounded-xl p-6 glass-card relative overflow-hidden group">
+                    <div class="absolute -right-4 -top-4 w-24 h-24 bg-[#ef4444] opacity-5 rounded-full blur-xl"></div>
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="thermometer" class="w-4 h-4"></i> Temperature</h3>
+                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                    </div>
+                    <div class="flex items-end gap-3 mt-2">
+                        <span id="val-temp" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span class="text-sm text-app-text-secondary mb-1">°C</span>
+                    </div>
+                </div>
+
+                <!-- Card 4: EC -->
+                <div class="col-span-12 md:col-span-4 bg-app-card border border-app-border rounded-xl p-6 glass-card relative overflow-hidden group">
+                    <div class="absolute -right-4 -top-4 w-24 h-24 bg-[#eab308] opacity-5 rounded-full blur-xl"></div>
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Elec. Conductivity</h3>
+                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                    </div>
+                    <div class="flex items-end gap-3 mt-2">
+                        <span id="val-ec" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span class="text-sm text-app-text-secondary mb-1">µS/cm</span>
+                    </div>
+                </div>
+
+                <!-- Card 5: TSS -->
+                <div class="col-span-12 md:col-span-4 bg-app-card border border-app-border rounded-xl p-6 glass-card relative overflow-hidden group">
+                    <div class="absolute -right-4 -top-4 w-24 h-24 bg-[#8b5cf6] opacity-5 rounded-full blur-xl"></div>
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="beaker" class="w-4 h-4"></i> Suspended Solids</h3>
+                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                    </div>
+                    <div class="flex items-end gap-3 mt-2">
+                        <span id="val-tss" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span class="text-sm text-app-text-secondary mb-1">mg/L</span>
+                    </div>
+                </div>
+
+                <!-- Card 6: Vsupply -->
+                <div class="col-span-12 md:col-span-4 bg-app-card border border-app-border rounded-xl p-6 glass-card relative overflow-hidden group">
+                    <div class="absolute -right-4 -top-4 w-24 h-24 bg-[#10b981] opacity-5 rounded-full blur-xl"></div>
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="battery" class="w-4 h-4"></i> Vsupply</h3>
+                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                    </div>
+                    <div class="flex items-end gap-3 mt-2">
+                        <span id="val-vsupply" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span class="text-sm text-app-text-secondary mb-1">V</span>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        // ---------------------------------------------------------
+        // 1. GLOBALS & CONFIGURATION
+        // ---------------------------------------------------------
+        
+        lucide.createIcons();
+        Chart.defaults.color = '#A0ADBC';
+        Chart.defaults.font.family = "'Inter', sans-serif";
+
+        const DASHBOARD_CONFIG = {
+            refreshInterval: 10000, // 10 seconds
+            chartColors: ['#6990F2', '#588CC4', '#10b981', '#8b5cf6'],
+            sheetUrls: [
+                'https://docs.google.com/spreadsheets/d/e/2PACX-1vRFKFKU2PhwYFXvE3OG7JHhG6JLMBYroVmXJ3yX8Shuf5OpOJT-S7YtavspJiwfpq4K6tXKkiWb6_of/pub?gid=0&single=true&output=csv', // P1
+                'https://docs.google.com/spreadsheets/d/e/2PACX-1vTuukD0C8PQhGiU1ckSKlCe8p_7CXL9M5iV9EiALhVj8aNsRJ1_c5Muur0FyIOP6VnU9DBKNrAGJu4e/pub?gid=0&single=true&output=csv', // P2
+                'https://docs.google.com/spreadsheets/d/e/2PACX-1vTqPhitjf7o0139ms1ym2tDKFveuEZc6BI3PHvNLi12-QHe5_Gqc_dnmChmhkkyY3alZ_WEFz_peZKC/pub?gid=0&single=true&output=csv', // P3
+                'https://docs.google.com/spreadsheets/d/e/2PACX-1vQWU5MBW0yYFy6v4Vmzlc4lDB1YvDJbTGeEOM6NJ2MmnFqgF8H3UFjNnolRMQe-MkUzjG8nw3ToHGzr/pub?gid=0&single=true&output=csv' // P4
+            ],
+            columns: {
+                timestamp: 'timestamp',
+                vsupply: 'vsys',
+                temp: 'temp',
+                ph: 'ph',
+                ec: 'ec',
+                turbidity: 'ntu',
+                tss: 'tss'
+            }
+        };
+
+        const AppState = {
+            mainChart: null,
+            cachedData: [],
+            activeNodeIndex: 0, // State for the live telemetry cards
+            filters: {
+                metric: 'temp',
+                range: '24', // hours
+                resolution: 'raw' // raw | hourly | daily
+            }
+        };
+
+        // ---------------------------------------------------------
+        // 2. TENSORFLOW.JS AI MODEL (NWQS Malaysia)
+        // ---------------------------------------------------------
+        
+        let tfModel;
+        
+        async function initTFModel() {
+            try {
+                // Initialize a Sequential Neural Network
+                tfModel = tf.sequential();
+                tfModel.add(tf.layers.dense({inputShape: [5], units: 16, activation: 'relu'}));
+                tfModel.add(tf.layers.dense({units: 8, activation: 'relu'}));
+                tfModel.add(tf.layers.dense({units: 3, activation: 'softmax'})); // 3 Classes
+                
+                tfModel.compile({
+                    optimizer: tf.train.adam(0.01),
+                    loss: 'categoricalCrossentropy',
+                    metrics: ['accuracy']
+                });
+
+                // Generate Synthetic Dataset matching NWQS Malaysia Standards
+                const xs = [];
+                const ys = [];
+                for(let i=0; i<300; i++) {
+                    // Good (Class I/II): pH 6.0-8.5, Temp 24-29, EC 0-1000, Turb 0-50, TSS 0-50
+                    xs.push([
+                        (24 + Math.random()*5)/50,   // temp
+                        (6.0 + Math.random()*2.5)/14, // ph
+                        (Math.random()*1000)/5000,   // ec
+                        (Math.random()*50)/1000,     // turb
+                        (Math.random()*50)/1000      // tss
+                    ]);
+                    ys.push([1, 0, 0]);
+
+                    // Moderate (Class III): pH 5.0-6.0 | 8.5-9.0, Temp 29-32, EC 1000-3000, Turb 50-150, TSS 50-150
+                    const modPh = Math.random() > 0.5 ? (5.0 + Math.random()*1) : (8.5 + Math.random()*0.5);
+                    xs.push([
+                        (29 + Math.random()*3)/50,
+                        (modPh)/14, 
+                        (1000 + Math.random()*2000)/5000,
+                        (50 + Math.random()*100)/1000,
+                        (50 + Math.random()*100)/1000
+                    ]);
+                    ys.push([0, 1, 0]);
+
+                    // Poor (Class IV/V): pH <5.0 | >9.0, Temp >32, EC >3000, Turb >150, TSS >150
+                    const poorPh = Math.random() > 0.5 ? (Math.random()*5.0) : (9.0 + Math.random()*5.0);
+                    xs.push([
+                        (32 + Math.random()*8)/50,
+                        (poorPh)/14,
+                        (3000 + Math.random()*2000)/5000,
+                        (150 + Math.random()*350)/1000,
+                        (150 + Math.random()*350)/1000
+                    ]);
+                    ys.push([0, 0, 1]);
+                }
+
+                const xsTensor = tf.tensor2d(xs);
+                const ysTensor = tf.tensor2d(ys);
+
+                // Train the model
+                await tfModel.fit(xsTensor, ysTensor, {epochs: 15, shuffle: true});
+                
+                // Update UI Status
+                document.getElementById('ai-status').innerText = "Model Active";
+                document.getElementById('ai-status').classList.replace('text-app-muted', 'text-[#10b981]');
+                
+                // Dispose tensors to free memory
+                xsTensor.dispose();
+                ysTensor.dispose();
+
+                // Run prediction if data is already available
+                runAIPrediction();
+
+            } catch(e) {
+                console.error("TF.js Model Failed:", e);
+                document.getElementById('ai-status').innerText = "Model Error";
+            }
+        }
+
+        function runAIPrediction() {
+            // Update the UI explicitly to show which node is being analyzed
+            const nodeLabelEl = document.getElementById('ai-node-label');
+            if (nodeLabelEl) {
+                nodeLabelEl.innerText = `NWQS Malaysia Framework (Node ${AppState.activeNodeIndex + 1})`;
+            }
+
+            const badgeNode = document.getElementById('node-badge');
+            badgeNode.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-app-muted/20 text-app-muted border border-app-muted/30';
+            badgeNode.innerText = `Node ${AppState.activeNodeIndex + 1}`;
+
+            if (!tfModel || !AppState.cachedData || !AppState.cachedData[AppState.activeNodeIndex]) return;
+            
+            const nodeData = AppState.cachedData[AppState.activeNodeIndex];
+            
+            // Handle offline/no-data nodes
+            if (!nodeData || !nodeData.length) {
+                document.getElementById('ai-prediction').innerText = "No Data";
+                document.getElementById('ai-confidence').innerText = "--%";
+                const badge = document.getElementById('ai-badge');
+                badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-app-muted/20 text-app-muted border border-app-muted/30';
+                badge.innerText = "Awaiting Data";
+                return;
+            }
+            
+            const latest = nodeData[nodeData.length - 1];
+            
+            // Extract parameters safely
+            const temp = parseFloat(latest[DASHBOARD_CONFIG.columns.temp]) || 25;
+            const ph = parseFloat(latest[DASHBOARD_CONFIG.columns.ph]) || 7;
+            const ec = parseFloat(latest[DASHBOARD_CONFIG.columns.ec]) || 500;
+            const turb = parseFloat(latest[DASHBOARD_CONFIG.columns.turbidity]) || 10;
+            const tss = parseFloat(latest[DASHBOARD_CONFIG.columns.tss]) || 10;
+
+            // Run Prediction (Normalized exactly like the training data)
+            const input = tf.tensor2d([[temp/50, ph/14, ec/5000, turb/1000, tss/1000]]);
+            const prediction = tfModel.predict(input);
+            const probs = prediction.dataSync();
+            
+            // Find max probability
+            const maxIdx = probs.indexOf(Math.max(...probs));
+            const confidence = (probs[maxIdx] * 100).toFixed(1) + '%';
+            
+            const classes = ['Class I/II (Clean)', 'Class III (Moderate)', 'Class IV/V (Polluted)'];
+            const wqiClass = classes[maxIdx];
+            
+            // Update UI
+            document.getElementById('ai-prediction').innerText = wqiClass;
+            document.getElementById('ai-confidence').innerText = confidence;
+            
+            const badge = document.getElementById('ai-badge');
+            if (maxIdx === 0) { // Clean
+                badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/30';
+                badge.innerText = "Excellent Quality";
+            } else if (maxIdx === 1) { // Moderate
+                badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-[#eab308]/20 text-[#eab308] border border-[#eab308]/30';
+                badge.innerText = "Monitoring Advised";
+            } else { // Polluted
+                badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-[#ef4444]/20 text-[#ef4444] border border-[#ef4444]/30';
+                badge.innerText = "Critical Warning";
+            }
+
+            input.dispose();
+            prediction.dispose();
+        }
+
+        // ---------------------------------------------------------
+        // 3. DATA LAYER (Fetch, Parse, Aggregate)
+        // ---------------------------------------------------------
+
+        function parseCSV(csvText) {
+            if (!csvText) return [];
+            
+            // This safely splits lines regardless of OS formatting
+            const lines = csvText.trim().split(/\r?\n/);
+            if (lines.length < 2) return [];
+            
+            const headers = lines[0].split(',').map(h => h.trim());
+            
+            return lines.slice(1).map(line => {
+                const values = line.split(',');
+                return headers.reduce((obj, header, index) => {
+                    obj[header] = values[index] ? values[index].trim() : null;
+                    return obj;
+                }, {});
+            });
+        }
+
+        async function fetchNodeData(url) {
+            try {
+                const response = await fetch(url); 
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const text = await response.text();
+                return parseCSV(text);
+            } catch (error) {
+                console.error('Failed to fetch node data:', error);
+                return [];
+            }
+        }
+
+        function filterAndAggregate(nodeData, metric, range, resolution) {
+            if (!nodeData || !nodeData.length) return [];
+
+            // Parse valid rows
+            let validPoints = nodeData.reduce((acc, row) => {
+                const val = parseFloat(row[DASHBOARD_CONFIG.columns[metric]]);
+                const tsStr = row[DASHBOARD_CONFIG.columns.timestamp];
+                let ts;
+                
+                // Try parsing the date
+                if(tsStr) {
+                    ts = new Date(tsStr);
+                    if (isNaN(ts.getTime())) {
+                       const parts = tsStr.split(/[\s/:]/);
+                       if(parts.length >= 6) {
+                            // Assuming format MM/DD/YYYY HH:MM:SS
+                            ts = new Date(parts[2], parts[0]-1, parts[1], parts[3], parts[4], parts[5]);
+                       }
+                    }
+                }
+
+                if (!isNaN(val) && ts && !isNaN(ts.getTime())) {
+                    acc.push({ ts, val });
+                }
+                return acc;
+            }, []);
+
+            if (!validPoints.length) return [];
+
+            // Apply Range Filter
+            if (range !== 'all') {
+                const latestTime = Math.max(...validPoints.map(d => d.ts.getTime()));
+                const cutoffTime = latestTime - (parseInt(range) * 60 * 60 * 1000);
+                validPoints = validPoints.filter(d => d.ts.getTime() >= cutoffTime);
+            }
+
+            // Apply Resolution Filter
+            if (resolution === 'raw') return validPoints;
+
+            const buckets = {};
+            validPoints.forEach(d => {
+                const date = new Date(d.ts);
+                if (resolution === 'hourly') date.setMinutes(0, 0, 0);
+                if (resolution === 'daily') date.setHours(0, 0, 0, 0);
+                
+                const key = date.getTime();
+                if (!buckets[key]) buckets[key] = { sum: 0, count: 0, ts: new Date(key) };
+                
+                buckets[key].sum += d.val;
+                buckets[key].count += 1;
+            });
+
+            return Object.values(buckets)
+                .map(b => ({ ts: b.ts, val: b.sum / b.count }))
+                .sort((a, b) => a.ts.getTime() - b.ts.getTime());
+        }
+
+        // ---------------------------------------------------------
+        // 4. UI RENDERING LAYER
+        // ---------------------------------------------------------
+
+        function initMainChart() {
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            AppState.mainChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: [], datasets: [] },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { position: 'top', labels: { usePointStyle: true, color: '#F4F3F7' } },
+                        tooltip: { backgroundColor: 'rgba(15, 30, 86, 0.9)', titleColor: '#F4F3F7', bodyColor: '#A0ADBC', borderColor: '#37509D', borderWidth: 1 }
+                    },
+                    scales: {
+                        x: { grid: { color: 'rgba(55, 80, 157, 0.1)' }, ticks: { maxTicksLimit: 12 } },
+                        y: { grid: { color: 'rgba(55, 80, 157, 0.1)' } }
+                    },
+                    animation: { duration: 400 } 
+                }
+            });
+        }
+
+        function updateNodeStatuses(syncTime) {
+            for (let i = 0; i < 4; i++) {
+                const nodeData = AppState.cachedData[i];
+                const badgeEl = document.getElementById(`status-badge-${i}`);
+                const timeEl = document.getElementById(`status-time-${i}`);
+                const dotEl = document.getElementById(`status-dot-${i}`);
+
+                if (!badgeEl || !timeEl || !dotEl) continue;
+
+                // Handle missing data
+                if (!nodeData || nodeData.length === 0) {
+                    badgeEl.innerText = 'Offline';
+                    badgeEl.className = 'text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border text-[#ef4444] bg-[#ef4444]/10 border-[#ef4444]/20';
+                    dotEl.className = 'w-2 h-2 rounded-full bg-[#ef4444]';
+                    timeEl.innerText = '--:--';
+                    continue;
+                }
+
+                // Extract and parse latest timestamp
+                const latest = nodeData[nodeData.length - 1];
+                const tsStr = latest[DASHBOARD_CONFIG.columns.timestamp];
+                let ts;
+                
+                if (tsStr) {
+                    ts = new Date(tsStr);
+                    if (isNaN(ts.getTime())) {
+                        const parts = tsStr.split(/[\s/:]/);
+                        if (parts.length >= 6) {
+                            ts = new Date(parts[2], parts[0] - 1, parts[1], parts[3], parts[4], parts[5]);
+                        }
+                    }
+                }
+
+                if (!ts || isNaN(ts.getTime())) {
+                    badgeEl.innerText = 'Error';
+                    timeEl.innerText = 'Invalid Date';
+                    continue;
+                }
+
+                // Compare timestamp against current sync time
+                const diffMs = Math.max(0, syncTime.getTime() - ts.getTime());
+                const oneMinMs = 60 * 1000;
+                const twoHoursMs = 2 * 60 * 60 * 1000;
+
+                let statusText = '';
+                let colorClass = '';
+                let bgClass = '';
+                let dotClass = '';
+
+                if (diffMs <= oneMinMs) {
+                    statusText = 'Online';
+                    colorClass = 'text-[#10b981]';
+                    bgClass = 'bg-[#10b981]/10 border-[#10b981]/20';
+                    dotClass = 'bg-[#10b981] animate-pulse';
+                } else if (diffMs <= twoHoursMs) {
+                    statusText = 'Deep Sleep';
+                    colorClass = 'text-[#eab308]';
+                    bgClass = 'bg-[#eab308]/10 border-[#eab308]/20';
+                    dotClass = 'bg-[#eab308]';
+                } else {
+                    statusText = 'Offline';
+                    colorClass = 'text-[#ef4444]';
+                    bgClass = 'bg-[#ef4444]/10 border-[#ef4444]/20';
+                    dotClass = 'bg-[#ef4444]';
+                }
+
+                // Apply UI Updates
+                badgeEl.innerText = statusText;
+                badgeEl.className = `text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border ${colorClass} ${bgClass}`;
+                dotEl.className = `w-2 h-2 rounded-full ${dotClass}`;
+                
+                // Format time string
+                timeEl.innerText = ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + " | " +  ts.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            }
+        }
+
+        function updateTelemetryCards() {
+            // Update the card labels to reflect active node
+            const nodeLabelElems = document.querySelectorAll('.node-label');
+            nodeLabelElems.forEach(el => {
+                el.innerText = `Node ${AppState.activeNodeIndex + 1} (Live)`;
+            });
+
+            // Get data for the currently selected node
+            const primaryNodeData = AppState.cachedData[AppState.activeNodeIndex];
+            
+            // If no data exists yet, output dashes
+            if (!primaryNodeData || !primaryNodeData.length) {
+                const ids = ['ph', 'turbidity', 'temp', 'ec', 'tss', 'vsupply'];
+                ids.forEach(id => {
+                    const el = document.getElementById(`val-${id}`);
+                    if (el) el.innerText = '--';
+                });
+            } else {
+                // Get latest valid data point
+                const latest = primaryNodeData[primaryNodeData.length - 1];
+                
+                const formatValue = (colKey) => {
+                    const val = parseFloat(latest[DASHBOARD_CONFIG.columns[colKey]]);
+                    return !isNaN(val) ? val.toFixed(2) : '--';
+                };
+
+                const ids = ['ph', 'turbidity', 'temp', 'ec', 'tss', 'vsupply'];
+                ids.forEach(id => {
+                    const el = document.getElementById(`val-${id}`);
+                    if (el) el.innerText = formatValue(id);
+                });
+            }
+            
+            // Trigger AI Prediction on Card Update
+            runAIPrediction();
+        }
+
+        function updateChartDisplay() {
+            if (!AppState.cachedData || !AppState.cachedData.length) return;
+
+            const { metric, range, resolution } = AppState.filters;
+
+            // Process each node's data
+            const processedNodes = AppState.cachedData.map(nodeData => 
+                filterAndAggregate(nodeData, metric, range, resolution)
+            );
+
+            // Establish unified master timeline
+            const uniqueTimestamps = new Set();
+            processedNodes.forEach(nodeArr => nodeArr.forEach(d => uniqueTimestamps.add(d.ts.getTime())));
+            const masterTimeline = Array.from(uniqueTimestamps).sort((a, b) => a - b);
+
+            // Format axis labels
+            const labels = masterTimeline.map(ts => {
+                const d = new Date(ts);
+                if (resolution === 'daily') return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                if (resolution === 'hourly' || range === '168') return d.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' });
+                return d.toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' });
+            });
+
+            // Map datasets to unified timeline
+            const datasets = processedNodes.map((nodeArr, i) => {
+                const dataMap = new Map(nodeArr.map(d => [d.ts.getTime(), d.val]));
+                const alignedData = masterTimeline.map(ts => dataMap.has(ts) ? dataMap.get(ts) : null);
+
+                return {
+                    label: `Node ${i + 1}`,
+                    data: alignedData,
+                    borderColor: DASHBOARD_CONFIG.chartColors[i],
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    pointBackgroundColor: '#0F1E56',
+                    pointBorderColor: DASHBOARD_CONFIG.chartColors[i],
+                    pointRadius: resolution === 'raw' ? 1 : 3, 
+                    pointHoverRadius: 5,
+                    tension: 0.3,
+                    spanGaps: true 
+                };
+            });
+
+            AppState.mainChart.data.labels = labels;
+            AppState.mainChart.data.datasets = datasets;
+            AppState.mainChart.update();
+        }
+
+        async function syncDashboardData() {
+            const statusEl = document.getElementById('sync-status');
+            const timeEl = document.getElementById('sync-time');
+            
+            statusEl.classList.remove('live-indicator');
+            statusEl.style.opacity = '0.5';
+            timeEl.innerText = 'Syncing...';
+
+            const promises = DASHBOARD_CONFIG.sheetUrls.map(url => fetchNodeData(url));
+            AppState.cachedData = await Promise.all(promises);
+
+            const now = new Date();
+
+            // Update UI
+            updateNodeStatuses(now);
+            updateTelemetryCards();
+            updateChartDisplay();
+
+            timeEl.innerText = `Last sync: ${now.toLocaleTimeString()}`;
+            statusEl.classList.add('live-indicator');
+            statusEl.style.opacity = '1';
+        }
+
+        // ---------------------------------------------------------
+        // 5. BOOTSTRAP & EVENT BINDINGS
+        // ---------------------------------------------------------
+
+        document.addEventListener("DOMContentLoaded", () => {
+            initMainChart();
+            initTFModel(); // Load and train AI in background
+            
+            // Bind Filter Events for Chart
+            document.getElementById('chart-metric-selector').addEventListener('change', (e) => {
+                AppState.filters.metric = e.target.value;
+                document.getElementById('chart-title-metric').innerText = e.target.options[e.target.selectedIndex].text;
+                updateChartDisplay(); 
+            });
+
+            document.getElementById('chart-range-selector').addEventListener('change', (e) => {
+                AppState.filters.range = e.target.value;
+                updateChartDisplay(); 
+            });
+
+            document.getElementById('chart-resolution-selector').addEventListener('change', (e) => {
+                AppState.filters.resolution = e.target.value;
+                updateChartDisplay(); 
+            });
+
+            // Bind Node Selector for Telemetry Cards
+            document.getElementById('active-node-selector').addEventListener('change', (e) => {
+                AppState.activeNodeIndex = parseInt(e.target.value);
+                updateTelemetryCards(); 
+            });
+
+            // Bind Refresh Button
+            document.getElementById('force-refresh-btn').addEventListener('click', async (e) => {
+                const btn = e.currentTarget;
+                const icon = document.getElementById('refresh-icon');
+                
+                if (btn.disabled) return;
+                
+                btn.disabled = true;
+                icon.classList.add('animate-spin');
+                
+                await syncDashboardData();
+                
+                icon.classList.remove('animate-spin');
+                btn.disabled = false;
+            });
+
+            // Kick off initial sync & interval
+            syncDashboardData();
+            setInterval(syncDashboardData, DASHBOARD_CONFIG.refreshInterval);
         });
-      })
-      .catch(err => {
-        clearTimeout(timer);
-        if (err.name === 'AbortError') reject(new Error('Fetch timed out'));
-        else reject(err);
-      });
-  });
-}
-
-/* -------------------- SANITIZERS -------------------- */
-function sanitizeFullRows(rows, tsKey, cols, opts = {}) {
-  if (!rows || !rows.length) return [];
-  const parsed = rows.map(r => {
-    const t = normalizeTimestamp(r[tsKey]);
-    return {
-      raw: r,
-      t,
-      ph: safeNum(r[cols.ph]),
-      ntu: safeNum(r[cols.ntu]),
-      temp: safeNum(r[cols.temp]),
-      ec: safeNum(r[cols.ec]),
-      tss: safeNum(r[cols.tss]),
-      vsys: safeNum(r[cols.vsys])
-    };
-  }).filter(p => p.t !== null);
-  if (!parsed.length) return [];
-  parsed.sort((a,b) => a.t - b.t);
-  const now = Date.now();
-  const minAllowed = now - (1000 * 60 * 60 * 24 * 365 * 10);
-  const maxAllowed = now + (1000 * 60 * 60 * 24 * 365 * 2);
-  const inWindow = parsed.filter(p => p.t.getTime() >= minAllowed && p.t.getTime() <= maxAllowed);
-  const thresholds = Object.assign({
-    ph: { min: 0, max: 14 },
-    temp: { min: -20, max: 60 },
-    ec: { min: 0, max: 2000 },
-    ntu: { min: 0, max: 2000 },
-    tss: { min: 0, max: 10000 },
-    vsys: { min: 0, max: 10 }
-  }, opts.thresholds || {});
-  const plausible = inWindow.filter(p => {
-    if (!isNaN(p.ph) && (p.ph < thresholds.ph.min || p.ph > thresholds.ph.max)) return false;
-    if (!isNaN(p.temp) && (p.temp < thresholds.temp.min || p.temp > thresholds.temp.max)) return false;
-    if (!isNaN(p.ec) && (p.ec < thresholds.ec.min || p.ec > thresholds.ec.max)) return false;
-    if (!isNaN(p.ntu) && (p.ntu < thresholds.ntu.min || p.ntu > thresholds.ntu.max)) return false;
-    if (!isNaN(p.tss) && (p.tss < thresholds.tss.min || p.tss > thresholds.tss.max)) return false;
-    if (!isNaN(p.vsys) && (p.vsys < thresholds.vsys.min || p.vsys > thresholds.vsys.max)) return false;
-    return true;
-  });
-  return plausible;
-}
-
-/* -------------------- RENDERING HELPERS -------------------- */
-function chooseTimeUnitAndTicks(minTs, maxTs) {
-  const diffMs = maxTs - minTs;
-  const diffDays = diffMs / (1000 * 60 * 60 * 24);
-  if (diffDays <= 1) return { unit: 'hour', maxTicks: 12 };
-  if (diffDays <= 7) return { unit: 'day', maxTicks: 14 };
-  if (diffDays <= 60) return { unit: 'week', maxTicks: 12 };
-  if (diffDays <= 365) return { unit: 'month', maxTicks: 12 };
-  return { unit: 'year', maxTicks: 10 };
-}
-
-function renderMainCharts(labels, phs, ntus, temps, ecs, vsys) {
-  try { if (state.charts.phNtu) state.charts.phNtu.destroy(); } catch(e) {}
-  try { if (state.charts.tempEc) state.charts.tempEc.destroy(); } catch(e) {}
-  try { if (state.charts.vsys) state.charts.vsys.destroy(); } catch(e) {}
-  if (!labels || !labels.length) return;
-  const minTs = Math.min(...labels.map(d=>d.getTime()));
-  const maxTs = Math.max(...labels.map(d=>d.getTime()));
-  const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
-  const ctx1 = document.getElementById('chartPhNtu').getContext('2d');
-  state.charts.phNtu = new Chart(ctx1, {
-    type:'line',
-    data:{ labels, datasets:[
-      { label: "pH", data: phs, borderColor:"#34d399", yAxisID:"yPh", tension:0.2, pointRadius:0 },
-      { label: "Turbidity (NTU)", data: ntus, borderColor:"#fbbf24", yAxisID:"yNtu", tension:0.2, pointRadius:0 }
-    ]},
-    options:{ responsive:true, maintainAspectRatio:false, scales:{
-      x:{ type:'time', time:{ unit:cfg.unit }, ticks:{ color:"#94a3b8", maxTicksLimit:cfg.maxTicks }, grid:{ display:false } },
-      yPh:{ type:'linear', position:'left', ticks:{ color:"#34d399" }, grid:{ color:"#334155" } },
-      yNtu:{ type:'linear', position:'right', ticks:{ color:"#fbbf24" }, grid:{ display:false } }
-    }, plugins:{ legend:{ labels:{ color:"#cbd5e1" } } } }
-  });
-  const ctx2 = document.getElementById('chartTempEc').getContext('2d');
-  state.charts.tempEc = new Chart(ctx2, {
-    type:'line',
-    data:{ labels, datasets:[
-      { label:"Temp (°C)", data:temps, borderColor:"#22d3ee", yAxisID:"yTemp", tension:0.2, pointRadius:0 },
-      { label:"EC (mS/cm)", data:ecs, borderColor:"#a78bfa", yAxisID:"yEc", tension:0.2, pointRadius:0 }
-    ]},
-    options:{ responsive:true, maintainAspectRatio:false, scales:{
-      x:{ type:'time', time:{ unit:cfg.unit }, ticks:{ color:"#94a3b8", maxTicksLimit:cfg.maxTicks }, grid:{ display:false } },
-      yTemp:{ type:'linear', position:'left', ticks:{ color:"#22d3ee" }, grid:{ color:"#334155" } },
-      yEc:{ type:'linear', position:'right', ticks:{ color:"#a78bfa" }, grid:{ display:false } }
-    }, plugins:{ legend:{ labels:{ color:"#cbd5e1" } } } }
-  });
-  const ctx3 = document.getElementById('chartVsys').getContext('2d');
-  state.charts.vsys = new Chart(ctx3, {
-    type:'line',
-    data:{ labels, datasets:[
-      { label:"Vsys (V)", data:vsys, borderColor:"#38bdf8", backgroundColor:"rgba(56,189,248,0.08)", fill:true, tension:0.2, pointRadius:0 }
-    ]},
-    options:{ responsive:true, maintainAspectRatio:false, scales:{
-      x:{ type:'time', time:{ unit:cfg.unit }, ticks:{ color:"#94a3b8", maxTicksLimit:cfg.maxTicks }, grid:{ display:false } },
-      y:{ ticks:{ color:"#94a3b8" }, grid:{ color:"#334155" } }
-    }, plugins:{ legend:{ labels:{ color:"#cbd5e1" } } } }
-  });
-}
-
-/* combined, small charts, map — same as earlier refactor (omitted for brevity) */
-/* We'll reuse previously defined functions: resampleFullData, resampleTimeseries, renderCombinedChart, renderMap... */
-
-/* Reuse resampling helpers from previous refactor */
-function resampleFullData(data, resSec) {
-  if (!resSec || resSec === 'auto') return data.slice();
-  const binMs = resSec * 1000;
-  const bins = new Map();
-  data.forEach(pt => {
-    const key = Math.floor(pt.t.getTime() / binMs) * binMs;
-    if (!bins.has(key)) bins.set(key, { count:0, sum:{ ph:0, ntu:0, temp:0, ec:0, tss:0, vsys:0 }, has:{ ph:0, ntu:0, temp:0, ec:0, tss:0, vsys:0 } });
-    const b = bins.get(key);
-    b.count++;
-    ['ph','ntu','temp','ec','tss','vsys'].forEach(k => {
-      const v = pt[k];
-      if (!isNaN(v)) { b.sum[k] += v; b.has[k]++; }
-    });
-  });
-  const res = [];
-  Array.from(bins.keys()).sort((a,b)=>a-b).forEach(msKey => {
-    const b = bins.get(msKey);
-    const t = new Date(msKey + Math.floor(binMs/2));
-    const item = { t };
-    ['ph','ntu','temp','ec','tss','vsys'].forEach(k => item[k] = b.has[k] ? (b.sum[k]/b.has[k]) : NaN);
-    res.push(item);
-  });
-  return res;
-}
-function resampleTimeseries(data, resSec) {
-  if (!resSec) return data.slice();
-  const binMs = resSec * 1000;
-  const bins = new Map();
-  data.forEach(pt => {
-    const key = Math.floor(pt.t.getTime() / binMs) * binMs;
-    if (!bins.has(key)) bins.set(key, { count:0, sum:0 });
-    const b = bins.get(key);
-    if (!isNaN(pt.v)) { b.sum += pt.v; b.count++; }
-  });
-  const res = [];
-  Array.from(bins.keys()).sort((a,b)=>a-b).forEach(msKey => {
-    const b = bins.get(msKey);
-    if (b.count > 0) res.push({ t: new Date(msKey + Math.floor(binMs/2)), v: b.sum / b.count });
-  });
-  return res;
-}
-function renderCombinedChart(datasets) {
-  try { if (state.charts.combined) state.charts.combined.destroy(); } catch(e) {}
-  if (!datasets || !datasets.length) return;
-  let minTs = Infinity, maxTs = -Infinity;
-  datasets.forEach(ds => ds.data.forEach(pt => {
-    const t = pt.x instanceof Date ? pt.x.getTime() : new Date(pt.x).getTime();
-    if (t < minTs) minTs = t;
-    if (t > maxTs) maxTs = t;
-  }));
-  if (!isFinite(minTs)) return;
-  const cfg = chooseTimeUnitAndTicks(minTs, maxTs);
-  const ctx = document.getElementById('chartPhNtu').getContext('2d');
-  state.charts.combined = new Chart(ctx, {
-    type:'line',
-    data:{ datasets: datasets.map(ds => ({ ...ds })) },
-    options:{ responsive:true, maintainAspectRatio:false, parsing:false, scales:{ x:{ type:'time', time:{ unit:cfg.unit }, ticks:{ color:"#94a3b8", maxTicksLimit:cfg.maxTicks }, grid:{ display:false } }, y:{ ticks:{ color:"#94a3b8" }, grid:{ color:"#334155" } } }, plugins:{ legend:{ labels:{ color:"#cbd5e1" } } } }
-  });
-}
-function renderMap(points) {
-  if (!state.map) {
-    state.map = L.map('map').setView([0,0], 2);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© OpenStreetMap' }).addTo(state.map);
-    state.markersLayer = L.layerGroup().addTo(state.map);
-  } else state.markersLayer.clearLayers();
-  points.forEach(p => {
-    const popup = `<b>${p.source || ''}</b><br>${(p.ts && p.ts.toLocaleString)?p.ts.toLocaleString():''}${p.value !== undefined?'<br>Value: '+p.value:''}`;
-    const marker = L.circleMarker([p.lat, p.lon], { radius:6, color:'#60a5fa', fillOpacity:0.8 }).bindPopup(popup);
-    state.markersLayer.addLayer(marker);
-  });
-  if (points.length) state.map.fitBounds(L.latLngBounds(points.map(p=>[p.lat,p.lon])).pad(0.2));
-}
-
-/* -------------------- KPI helpers -------------------- */
-function updateKPIsFromFullRow(row, cols) {
-  if (!row || !cols) return;
-  try {
-    if (cols.ph && row[cols.ph] !== undefined) refs.kpiPh.innerText = Number(row[cols.ph]).toFixed(2);
-    if (cols.ntu && row[cols.ntu] !== undefined) refs.kpiNtu.innerText = Number(row[cols.ntu]).toFixed(1);
-    if (cols.temp && row[cols.temp] !== undefined) refs.kpiTemp.innerText = Number(row[cols.temp]).toFixed(1) + "°";
-    if (cols.ec && row[cols.ec] !== undefined) refs.kpiEc.innerText = Number(row[cols.ec]).toFixed(2);
-    if (cols.tss && row[cols.tss] !== undefined) refs.kpiTss.innerText = Number(row[cols.tss]).toFixed(2);
-    if (cols.vsys && row[cols.vsys] !== undefined) refs.kpiVsys.innerText = Number(row[cols.vsys]).toFixed(2) + "V";
-  } catch(e){}
-}
-function clearKPIs() {
-  refs.kpiPh.innerText = '--'; refs.kpiNtu.innerText = '--'; refs.kpiTemp.innerText = '--';
-  refs.kpiEc.innerText = '--'; refs.kpiTss.innerText = '--'; refs.kpiVsys.innerText = '--';
-}
-
-/* -------------------- DEVICE STATUS UI -------------------- */
-function setDeviceStatusUI(status, lastTs) {
-  // status: 'online' | 'deepsleep' | 'offline' | 'nodata'
-  const dot = refs.deviceStatusDot;
-  const text = refs.deviceStatusText;
-  const lastEl = refs.deviceLastData;
-  if (status === 'online') {
-    dot.style.background = '#16a34a'; // green
-    text.innerText = 'Online';
-  } else if (status === 'deepsleep') {
-    dot.style.background = '#f59e0b'; // amber
-    text.innerText = 'Deep Sleep';
-  } else if (status === 'offline') {
-    dot.style.background = '#ef4444'; // red
-    text.innerText = 'Offline';
-  } else {
-    dot.style.background = '#9ca3af'; // gray
-    text.innerText = 'No data';
-  }
-  lastEl.innerText = lastTs ? `Last data: ${formatTs(lastTs)}` : '';
-}
-
-/* Determine device status for currently selected source, using previousLastTimestamps */
-function updateDeviceStatusForSelectedSource() {
-  const name = state.selectedSourceName;
-  if (!name) { setDeviceStatusUI('nodata', null); return; }
-  const data = state.fullDataMap[name] || [];
-  if (!data || !data.length) { setDeviceStatusUI('nodata', null); return; }
-  const latest = data[data.length - 1].t; // Date
-  const prev = state.previousLastTimestamps[name] || null;
-  const now = Date.now();
-
-  let status = 'nodata';
-  if (!latest) {
-    status = 'nodata';
-  } else if (!prev || (latest.getTime() > prev.getTime())) {
-    // new push observed this refresh
-    status = 'online';
-  } else {
-    const age = now - latest.getTime();
-    if (age <= SLEEP_THRESHOLD_MS) status = 'deepsleep';
-    else if (age <= OFFLINE_THRESHOLD_MS) status = 'deepsleep'; // still sleeping or late
-    else status = 'offline';
-  }
-
-  // update UI and store previous timestamp (so future refreshes can detect changes)
-  setDeviceStatusUI(status, latest);
-  state.previousLastTimestamps[name] = latest;
-}
-
-/* -------------------- MAIN LOAD / HANDLER -------------------- */
-function setStatus(text, busy=false, ok=true) {
-  refs.statusText.innerText = text;
-  refs.statusSpinner.style.display = busy ? 'inline-block' : 'none';
-  const el = document.getElementById('statusIndicator');
-  el.className = ok ? 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300'
-                    : 'inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300';
-}
-
-function setControlsDisabled(disabled) {
-  refs.sourceSelect.disabled = disabled;
-  refs.refreshBtn.disabled = disabled;
-  refs.sourceSelect.classList.toggle('opacity-50', disabled);
-  refs.refreshBtn.classList.toggle('opacity-50', disabled);
-}
-
-function updateRefreshingUI(pendingSet) {
-  if (!pendingSet || pendingSet.size === 0) {
-    refs.refreshingListEl.classList.add('hide'); refs.refreshingListEl.innerText = ''; return;
-  }
-  refs.refreshingListEl.classList.remove('hide');
-  const names = Array.from(pendingSet);
-  const preview = names.length > 3 ? names.slice(0,3).join(', ') + ` and ${names.length-3} more` : names.join(', ');
-  refs.refreshingListEl.innerText = `Refreshing: ${preview}`;
-}
-
-async function loadAll() {
-  console.info('[loadAll] starting CSV fetch');
-  setControlsDisabled(true);
-  setStatus('Refreshing sources...', true, true);
-
-  const pending = new Set(SOURCES.map(s => s.name));
-  updateRefreshingUI(pending);
-
-  try {
-    const fetchPromises = SOURCES.map(s =>
-      fetchCsv(s.url)
-        .then(rows => { pending.delete(s.name); updateRefreshingUI(pending); return { source: s, rows }; })
-        .catch(err => { pending.delete(s.name); updateRefreshingUI(pending); return { source: s, error: err }; })
-    );
-    const results = await Promise.all(fetchPromises);
-    handleResults(results);
-    setStatus('Live Connected', false, true);
-    document.getElementById('lastUpdated').innerText = new Date().toLocaleTimeString();
-  } catch (err) {
-    console.error('[loadAll] error', err);
-    setStatus('Connection Failed: ' + (err.message || err), false, false);
-  } finally {
-    setControlsDisabled(false);
-    pending.clear(); updateRefreshingUI(pending);
-  }
-}
-
-/* Diagnostic handleResults */
-function handleResults(results) {
-  console.group('[handleResults]');
-  state.fullDataMap = {};
-  state.timeseriesData = {};
-  const mapPoints = [];
-  let latlonDetected = false;
-
-  results.forEach(res => {
-    const s = res.source;
-    if (res.error) { console.warn('[handleResults] source error', s.name, res.error); return; }
-    console.groupCollapsed(`[source] ${s.name}`);
-    console.log('raw rows:', res.rows.length);
-    console.log('first row preview:', res.rows[0]);
-    console.log('headers:', res.rows[0] ? Object.keys(res.rows[0]) : 'no rows');
-
-    if (s.type === 'full') {
-      const cleaned = sanitizeFullRows(res.rows, s.tsCol, s.columns, s.sanitize || {});
-      console.log('cleaned count:', cleaned.length);
-      state.fullDataMap[s.name] = cleaned;
-      if (s.columns && s.columns.lat && s.columns.lon) {
-        cleaned.forEach(c => {
-          const lat = parseFloat(c.raw[s.columns.lat]);
-          const lon = parseFloat(c.raw[s.columns.lon]);
-          if (!isNaN(lat) && !isNaN(lon)) { latlonDetected = true; mapPoints.push({ lat, lon, ts: c.t, source: s.name }); }
-        });
-      }
-    } else if (s.type === 'timeseries') {
-      const cleaned = sanitizeTimeSeriesRows(res.rows, s.tsCol, s.valueCol);
-      state.timeseriesData[s.name] = { cfg:s, data:cleaned };
-    }
-
-    console.groupEnd();
-  });
-
-  // preserve selection if possible
-  const prev = refs.sourceSelect.value || state.selectedSourceName;
-  refs.sourceSelect.innerHTML = '';
-  SOURCES.forEach(s => { const opt = document.createElement('option'); opt.value = s.name; opt.text = s.name; refs.sourceSelect.appendChild(opt); });
-  if (prev && Array.from(refs.sourceSelect.options).some(o=>o.value === prev)) refs.sourceSelect.value = prev;
-  else if (SOURCES.length) refs.sourceSelect.value = SOURCES[0].name;
-  state.selectedSourceName = refs.sourceSelect.value;
-  localStorage.setItem(LOCALSTORAGE_KEY, state.selectedSourceName);
-
-   document.getElementById('sourceName').textContent = state.selectedSourceName;
-
-  // set currentFullData & update KPIs
-  const chosen = state.selectedSourceName;
-  if (chosen && state.fullDataMap[chosen] && state.fullDataMap[chosen].length) {
-    state.currentFullData = state.fullDataMap[chosen].slice();
-    const cfg = SOURCES.find(x => x.name === chosen);
-    updateKPIsFromFullRow(state.currentFullData[state.currentFullData.length - 1].raw, cfg.columns);
-  } else {
-    state.currentFullData = [];
-    clearKPIs();
-    if (!(chosen && state.fullDataMap[chosen])) setStatus('No cleaned data available for selected source. Check headers/permissions.', false, false);
-  }
-
-  applyRangeAndResolutionAndRender();
-
-  if (latlonDetected && mapPoints.length) {
-    document.getElementById('map').style.display = 'block';
-    document.getElementById('mapMsg').style.display = 'none';
-    renderMap(mapPoints);
-  } else {
-    if (state.map) { state.map.remove(); state.map = null; state.markersLayer = null; }
-    document.getElementById('map').style.display = 'none';
-    document.getElementById('mapMsg').style.display = 'block';
-  }
-
-  // update device status for selected source now that data is loaded
-  updateDeviceStatusForSelectedSource();
-
-  console.groupEnd();
-}
-
-/* Prepare + render charts and small charts (re-using helper functions above) */
-function filterAndPrepareFullForPlot(data, rangeMs, resolutionSec) {
-  if (!data || !data.length) return null;
-  const now = Date.now();
-  const filtered = (rangeMs && rangeMs !== 'all') ? data.filter(d => d.t.getTime() >= (now - rangeMs)) : data.slice();
-  if (!filtered.length) return null;
-  const toUse = (resolutionSec && resolutionSec !== 'auto') ? resampleFullData(filtered, Number(resolutionSec)) : filtered;
-  const labels = toUse.map(d => d.t);
-  const phs = toUse.map(d => isNaN(d.ph)?null:d.ph);
-  const ntus = toUse.map(d => isNaN(d.ntu)?null:d.ntu);
-  const temps = toUse.map(d => isNaN(d.temp)?null:d.temp);
-  const ecs = toUse.map(d => isNaN(d.ec)?null:d.ec);
-  const vsys = toUse.map(d => isNaN(d.vsys)?null:d.vsys);
-  return { labels, phs, ntus, temps, ecs, vsys, raw: toUse };
-}
-
-function applyRangeAndResolutionAndRender() {
-  const rangeVal = refs.timeRangeSelect.value === 'all' ? 'all' : Number(refs.timeRangeSelect.value);
-  const resVal = refs.resolutionSelect.value;
-  const data = state.currentFullData || [];
-  if (data && data.length) {
-    const prepared = filterAndPrepareFullForPlot(data, rangeVal, resVal);
-    if (prepared) renderMainCharts(prepared.labels, prepared.phs, prepared.ntus, prepared.temps, prepared.ecs, prepared.vsys);
-    else { try { state.charts.phNtu.destroy(); } catch(e){} try { state.charts.tempEc.destroy(); } catch(e){} try { state.charts.vsys.destroy(); } catch(e){} }
-  } else {
-    try { state.charts.phNtu.destroy(); } catch(e){} try { state.charts.tempEc.destroy(); } catch(e){} try { state.charts.vsys.destroy(); } catch(e){}
-  }
-
-  // small charts for timeseries if any
-  refs.smallChartsContainer.innerHTML = '';
-  if (Object.keys(state.timeseriesData).length) {
-    const combinedDatasets = [];
-    Object.values(state.timeseriesData).forEach((entry, idx) => {
-      const cfg = entry.cfg; const cleaned = entry.data;
-      if (!cleaned || !cleaned.length) {
-        const card = document.createElement('div'); card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700 placeholder';
-        card.innerHTML = `<div class="text-sm text-slate-200 font-medium">${cfg.name}</div><div class="text-xs text-slate-400 mt-2">No valid data</div>`;
-        refs.smallChartsContainer.appendChild(card); return;
-      }
-      const now = Date.now(); const inRange = rangeVal === 'all' ? cleaned.slice() : cleaned.filter(p => p.t.getTime() >= (now - rangeVal));
-      if (!inRange.length) {
-        const card = document.createElement('div'); card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700 placeholder';
-        card.innerHTML = `<div class="text-sm text-slate-200 font-medium">${cfg.name}</div><div class="text-xs text-slate-400 mt-2">No points in range</div>`;
-        refs.smallChartsContainer.appendChild(card); return;
-      }
-      const prepared = (resVal === 'auto') ? inRange : resampleTimeseries(inRange, Number(resVal));
-      const labels = prepared.map(p => p.t); const values = prepared.map(p => p.v);
-      const card = document.createElement('div'); card.className = 'bg-slate-900/40 p-3 rounded-md border border-slate-700';
-      const canvasId = 'miniChart_' + idx;
-      card.innerHTML = `<div class="flex justify-between items-center mb-2"><div class="text-sm text-slate-200 font-medium">${cfg.name}</div><div class="text-xs text-slate-400">${labels.length} pts</div></div><div class="mini-chart"><canvas id="${canvasId}"></canvas></div>`;
-      refs.smallChartsContainer.appendChild(card);
-      const ctx = document.getElementById(canvasId).getContext('2d');
-      const minTs = Math.min(...labels.map(d=>d.getTime())); const maxTs = Math.max(...labels.map(d=>d.getTime()));
-      const tickCfg = chooseTimeUnitAndTicks(minTs, maxTs);
-      const miniChart = new Chart(ctx, { type:'line', data:{ labels, datasets:[{ label: cfg.name, data: values, borderColor: cfg.color || '#60a5fa', tension:0.3, pointRadius:0 }] }, options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ type:'time', time:{ unit: tickCfg.unit }, ticks:{ color:'#94a3b8', maxTicksLimit: tickCfg.maxTicks }, grid:{ display:false } }, y:{ ticks:{ color:'#cbd5e1' } } }, plugins:{ legend:{ display:false } } } });
-      state.smallCharts.push(miniChart);
-      combinedDatasets.push({ label: cfg.name, data: prepared.map(p=>({ x: p.t, y: p.v })), borderColor: cfg.color || '#60a5fa', tension:0.2, fill:false });
-    });
-    if (combinedDatasets.length) renderCombinedChart(combinedDatasets);
-  } else try { if (state.charts.combined) state.charts.combined.destroy(); } catch(e){}
-  // auto-run analytics
-  try { setTimeout(() => runAnalytics(), 150); } catch(e) {}
-}
-
-/* -------------------- ANALYTICS -------------------- */
-/* ... same as previous runAnalytics/generateLLMSummary code ... */
-/* For brevity re-using runAnalytics and LLM functions from V5 - unchanged (omitted here). */
-
-function median(arr) { const s = arr.slice().sort((a,b)=>a-b); const n = s.length; if (!n) return NaN; const mid = Math.floor(n/2); return n%2 ? s[mid] : (s[mid-1]+s[mid])/2; }
-function meanStd(arr) { const clean = arr.filter(x => isFinite(x)); const n = clean.length; if (!n) return { mean: NaN, std: NaN }; const mean = clean.reduce((a,b)=>a+b,0)/n; const std = Math.sqrt(clean.reduce((a,b)=>a + (b-mean)*(b-mean),0)/n); return { mean, std }; }
-function linearRegression(xs, ys) { const n = xs.length; if (n<2) return { slope:0, intercept: isFinite(ys[ys.length-1])?ys[ys.length-1]:0 }; const meanX = xs.reduce((a,b)=>a+b,0)/n; const meanY = ys.reduce((a,b)=>a+b,0)/n; let num=0,den=0; for (let i=0;i<n;i++){ const dx=xs[i]-meanX; num+=dx*(ys[i]-meanY); den+=dx*dx; } if (den===0) return { slope:0, intercept:meanY }; const slope=num/den; const intercept = meanY - slope*meanX; return { slope, intercept }; }
-function detectAnomaliesArray(values, timestamps, zThreshold = 3) { const clean = values.map((v,i)=>({v,t:timestamps[i],idx:i})).filter(x=>isFinite(x.v)); if (!clean.length) return []; const vs = clean.map(x=>x.v); const { mean, std } = meanStd(vs); const zAnoms = clean.filter(x=> Math.abs((x.v-mean)/(std||1e-9)) >= zThreshold ).map(x=>({type:'z', value:x.v, ts:x.t})); const sorted = vs.slice().sort((a,b)=>a-b); const q1 = sorted[Math.floor((sorted.length-1)/4)]; const q3 = sorted[Math.ceil((sorted.length-1)*3/4)]; const iqr = q3 - q1; const low = q1 - 1.5*iqr, high = q3 + 1.5*iqr; const iqrAnoms = clean.filter(x=>x.v<low||x.v>high).map(x=>({type:'iqr', value:x.v, ts:x.t})); const key = a => `${a.ts.getTime()}|${a.value}`; const map = new Map(); zAnoms.concat(iqrAnoms).forEach(a=>map.set(key(a), a)); return Array.from(map.values()).sort((a,b)=>a.ts-b.ts); }
-function forecastLinear(timestamps, values, steps=6, stepMs=60*60*1000) { const xs=[],ys=[]; for (let i=0;i<timestamps.length;i++) if (isFinite(values[i])) { xs.push(timestamps[i].getTime()); ys.push(values[i]); } if (!xs.length) return []; const lr = linearRegression(xs, ys); const lastTs = Math.max(...xs); const out=[]; for (let s=1;s<=steps;s++){ const t = lastTs + s*stepMs; out.push({ t: new Date(t), y: lr.slope * t + lr.intercept }); } return out; }
-
-document.getElementById('runAnalyticsBtn').addEventListener('click', runAnalytics);
-document.getElementById('genLLMSummaryBtn').addEventListener('click', generateLLMSummary);
-
-function runAnalytics() {
-  const rangeVal = refs.timeRangeSelect.value === 'all' ? 'all' : Number(refs.timeRangeSelect.value);
-  const resVal = refs.resolutionSelect.value;
-  const prepared = filterAndPrepareFullForPlot(state.currentFullData || [], rangeVal, resVal);
-  if (!prepared) { refs.analyticsSummary.innerText = 'No data in selected range.'; refs.anomaliesList.innerText = ''; refs.forecastList.innerText = ''; return; }
-  const metrics = [{key:'ph',label:'pH'},{key:'ntu',label:'Turbidity (NTU)'},{key:'temp',label:'Temperature (°C)'},{key:'ec',label:'EC (mS/cm)'},{key:'vsys',label:'Vsys (V)'}];
-  const summaryParts = [], anomaliesOut = [], forecastsOut = [];
-  metrics.forEach(m => {
-    const arr = prepared.raw.map(x => isFinite(x[m.key]) ? x[m.key] : NaN);
-    const ts = prepared.raw.map(x => x.t);
-    const idxs = arr.map((v,i)=>({v,i})).filter(x=>isFinite(x.v)).map(x=>x.i);
-    const values = idxs.map(i=>arr[i]); const times = idxs.map(i=>ts[i]);
-    const { mean, std } = meanStd(values); const med = median(values); const cnt = values.length; const min = cnt ? Math.min(...values) : NaN; const max = cnt ? Math.max(...values) : NaN;
-    let slopePerHour = 0; if (times.length >= 2) { const xs = times.map(d=>d.getTime()); const lr = linearRegression(xs, values); slopePerHour = lr.slope * 1000 * 60 * 60; }
-    summaryParts.push(`${m.label}: last=${(values.length?values[values.length-1].toFixed(3):'—')}, n=${cnt}, mean=${isFinite(mean)?mean.toFixed(3):'—'}, med=${isFinite(med)?med.toFixed(3):'—'}, std=${isFinite(std)?std.toFixed(3):'—'}, range=[${isFinite(min)?min.toFixed(3):'—'}..${isFinite(max)?max.toFixed(3):'—'}], slope/hr=${slopePerHour>=0?'+':''}${isFinite(slopePerHour)?slopePerHour.toFixed(4):'—'}`);
-    const anoms = detectAnomaliesArray(values, times); if (anoms.length) anomaliesOut.push({ metric: m.label, list: anoms.map(a=>({ts:a.ts, value:a.value})) });
-    let stepMs = 3600000; if (times.length >= 3) { const deltas = []; for (let i=1;i<times.length;i++) deltas.push(times[i].getTime()-times[i-1].getTime()); stepMs = median(deltas); }
-    const f = forecastLinear(times, values, 6, stepMs); forecastsOut.push({ metric: m.label, forecast: f });
-  });
-  refs.analyticsSummary.innerText = summaryParts.join('\n');
-  if (!anomaliesOut.length) refs.anomaliesList.innerText = 'No anomalies detected (z-score/IQR) in selected range.'; else refs.anomaliesList.innerHTML = anomaliesOut.map(a => `<div class="mb-2"><strong>${a.metric}</strong><div class="text-xs text-slate-300">${a.list.map(x=>`${x.ts.toLocaleString()} → ${x.value}`).join('<br/>')}</div></div>`).join('');
-  refs.forecastList.innerHTML = forecastsOut.map(f => { const lines = f.forecast.map(pt => `${pt.t.toLocaleString()} → ${pt.y.toFixed(3)}`); return `<div class="mb-2"><strong>${f.metric}</strong><div class="text-xs text-slate-300">${lines.join('<br/>')}</div></div>`; }).join('');
-}
-
-async function generateLLMSummary() {
-  runAnalytics();
-  const key = document.getElementById('openaiKey').value.trim();
-  if (!key) { const s = refs.analyticsSummary.innerText || ''; const lines = s.split('\n').slice(0,5); const headline = lines.map(l => l.split(':')[0]).join(', ') + ' — see details'; const bullets = lines.slice(0,4).map(l => '- '+l); refs.analyticsSummary.innerText = `${headline}\n\n${bullets.join('\n')}\n\n(Heuristic summary; provide an API key for an LLM-generated narrative.)`; return; }
-  setStatus('Generating LLM summary...', true, true);
-  const prompt = `You are an expert telemetry analyst. Summarize these telemetry analytics in 4-6 concise bullet points for an operations dashboard operator:\n\nAnalytics:\n${refs.analyticsSummary.innerText}\n\nAnomalies:\n${refs.anomaliesList.innerText}\n\nForecast:\n${refs.forecastList.innerText}\n\nInclude: main risks, urgent anomalies, suggested checks or mitigations, and a short plain-language headline.`;
-  try {
-    const body = { model: 'gpt-4o', messages: [{ role:'user', content: prompt }], max_tokens:400, temperature:0.2 };
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+key }, body: JSON.stringify(body) });
-    if (!resp.ok) { const txt = await resp.text(); throw new Error('OpenAI error: ' + resp.status + ' ' + txt.slice(0,200)); }
-    const data = await resp.json();
-    const text = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) ? data.choices[0].message.content : JSON.stringify(data);
-    refs.analyticsSummary.innerText = text; setStatus('LLM summary ready', false, true);
-  } catch (err) { console.error('LLM error', err); setStatus('LLM error: ' + (err.message || err), false, false); }
-}
-
-/* -------------------- DEVICE STATUS LOGIC -------------------- */
-function setDeviceStatusUI(status, lastTs) {
-  const dot = refs.deviceStatusDot, text = refs.deviceStatusText, lastEl = refs.deviceLastData;
-  if (status === 'online') { dot.style.background = '#16a34a'; text.innerText = 'Online'; }
-  else if (status === 'deepsleep') { dot.style.background = '#f59e0b'; text.innerText = 'Deep Sleep'; }
-  else if (status === 'offline') { dot.style.background = '#ef4444'; text.innerText = 'Offline'; }
-  else { dot.style.background = '#9ca3af'; text.innerText = 'No data'; }
-  lastEl.innerText = lastTs ? `Last data: ${formatTs(lastTs)}` : '';
-}
-
-function updateDeviceStatusForSelectedSource() {
-  const name = state.selectedSourceName;
-  if (!name) { setDeviceStatusUI('nodata', null); return; }
-  const data = state.fullDataMap[name] || [];
-  if (!data || !data.length) { setDeviceStatusUI('nodata', null); return; }
-  const latest = data[data.length - 1].t;
-  const prev = state.previousLastTimestamps[name] || null;
-  const now = Date.now();
-  let status = 'nodata';
-  if (!latest) status = 'nodata';
-  else if (!prev || (latest.getTime() > prev.getTime())) status = 'online';
-  else {
-    const age = now - latest.getTime();
-    if (age <= SLEEP_THRESHOLD_MS) status = 'deepsleep';
-    else if (age <= OFFLINE_THRESHOLD_MS) status = 'deepsleep';
-    else status = 'offline';
-  }
-  setDeviceStatusUI(status, latest);
-  state.previousLastTimestamps[name] = latest;
-}
-
-/* -------------------- EVENTS -------------------- */
-refs.sourceSelect.addEventListener('change', () => {
-  state.selectedSourceName = refs.sourceSelect.value;
-  localStorage.setItem(LOCALSTORAGE_KEY, state.selectedSourceName);
-  state.currentFullData = state.fullDataMap[state.selectedSourceName] ? state.fullDataMap[state.selectedSourceName].slice() : [];
-  const cfg = SOURCES.find(s => s.name === state.selectedSourceName);
-  if (state.currentFullData && state.currentFullData.length && cfg) updateKPIsFromFullRow(state.currentFullData[state.currentFullData.length-1].raw, cfg.columns);
-  else clearKPIs();
-  applyRangeAndResolutionAndRender();
-  updateDeviceStatusForSelectedSource();
-});
-refs.timeRangeSelect.addEventListener('change', applyRangeAndResolutionAndRender);
-refs.resolutionSelect.addEventListener('change', applyRangeAndResolutionAndRender);
-refs.refreshBtn.addEventListener('click', loadAll);
-refs.refreshInterval.addEventListener('change', (e) => { const v = Math.max(5, Number(e.target.value || state.REFRESH_INTERVAL)); state.REFRESH_INTERVAL = v; resetTimer(); });
-
-/* -------------------- TIMER & INIT -------------------- */
-function resetTimer() { if (state.refreshTimer) clearInterval(state.refreshTimer); state.refreshTimer = setInterval(loadAll, state.REFRESH_INTERVAL * 1000); }
-window.addEventListener('load', () => {
-  if (!SOURCES || !SOURCES.length) { setStatus('No CSV configured — edit SOURCES in the file.', false, false); return; }
-  // populate select and init
-  const prev = localStorage.getItem(LOCALSTORAGE_KEY) || (SOURCES[0] && SOURCES[0].name);
-  refs.sourceSelect.innerHTML = ''; SOURCES.forEach(s => { const opt = document.createElement('option'); opt.value = s.name; opt.text = s.name; refs.sourceSelect.appendChild(opt); });
-  refs.sourceSelect.value = prev && Array.from(refs.sourceSelect.options).some(o=>o.value === prev) ? prev : (SOURCES[0] && SOURCES[0].name);
-  state.selectedSourceName = refs.sourceSelect.value;
-  localStorage.setItem(LOCALSTORAGE_KEY, state.selectedSourceName);
-
-  loadAll();
-  resetTimer();
-});
-</script>
+    </script>
 </body>
 </html>
