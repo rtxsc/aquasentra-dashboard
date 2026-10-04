@@ -67,21 +67,6 @@
 </head>
 <body class="bg-app-bg text-app-text-main font-sans h-screen w-full flex overflow-hidden selection:bg-app-accent1 selection:text-white">
 
-    <!-- Sidebar -->
-    <aside class="w-20 h-full border-r border-app-border bg-app-bg flex flex-col items-center py-6 flex-shrink-0 z-20">
-        <div class="mb-10 w-10 h-10 rounded-xl bg-app-accent1 flex items-center justify-center shadow-glow">
-            <i data-lucide="cpu" class="text-white w-6 h-6"></i>
-        </div>
-        <nav class="flex flex-col gap-8 w-full items-center flex-1">
-            <a href="#" class="text-app-accent1"><i data-lucide="layout-dashboard" class="w-6 h-6"></i></a>
-            <a href="#" class="text-app-muted hover:text-app-text-main transition-colors"><i data-lucide="server" class="w-6 h-6"></i></a>
-            <a href="#" class="text-app-muted hover:text-app-text-main transition-colors"><i data-lucide="activity" class="w-6 h-6"></i></a>
-        </nav>
-        <div class="mt-auto">
-            <a href="#" class="text-app-muted hover:text-app-text-main transition-colors"><i data-lucide="settings" class="w-6 h-6"></i></a>
-        </div>
-    </aside>
-
     <!-- Main Content Area -->
     <div class="flex-1 flex flex-col h-full overflow-hidden relative">
         <div class="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-app-accent1 opacity-[0.03] blur-[100px] pointer-events-none"></div>
@@ -89,7 +74,10 @@
         <!-- Header -->
         <header class="h-20 border-b border-app-border/50 flex items-center justify-between px-8 z-10 bg-app-bg/80 backdrop-blur-md">
             <div>
-                <h1 class="text-xl font-semibold tracking-wide">AquaSentra</h1>
+                <h1 class="text-xl font-semibold tracking-wide">AquaSentra</h1>    
+                <p class="text-xs font-medium tracking-wide">by Sentra Labs</p>
+            </div>
+            <div>
                 <p class="text-sm text-app-text-secondary flex items-center gap-2">
                     <span id="sync-status" class="w-2 h-2 rounded-full bg-app-accent1 live-indicator"></span>
                     <span id="sync-time">Waiting for data sync...</span>
@@ -106,7 +94,7 @@
         <main class="flex-1 overflow-y-auto p-8 z-10">
             <div class="grid grid-cols-12 gap-6 max-w-[1600px] mx-auto">
                 
-                <!-- Main Chart Card (Shrunk to col-span-8 to fit AI panel) -->
+                <!-- Main Chart Card -->
                 <div class="col-span-12 lg:col-span-8 bg-app-card border border-app-border rounded-xl p-6 glass-card flex flex-col relative overflow-hidden">
                     <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                         <div>
@@ -169,30 +157,55 @@
                                 <i data-lucide="brain-circuit" class="w-5 h-5 text-app-accent1"></i>
                                 AI Water Quality
                             </h2>
-                                <span id="node-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-app-muted/20 text-app-muted border border-app-muted/30">
-                                        Loading Node
-                                </span>
-                            <p class="text-xs text-app-text-secondary mt-1">NWQS Malaysia Framework</p>
+                            <p class="text-xs text-app-text-secondary mt-1">NWQS Malaysia Framework & Marine Life Viability</p>
                         </div>
-                        <span id="ai-status" class="text-[10px] text-app-muted uppercase font-bold tracking-wider">Model Loading...</span>
+                        <span id="node-badge" class="px-3 py-1 rounded-full text-xs font-semibold border border-app-border bg-app-bg text-app-muted">
+                            Loading Node
+                        </span>
                     </div>
 
-                    <div class="flex flex-col flex-1 justify-center items-center text-center p-4 bg-app-bg/50 rounded-xl border border-app-border/50">
-                        <p class="text-xs text-app-text-secondary uppercase tracking-widest mb-2">Current Status</p>
-                        <h3 id="ai-prediction" class="text-2xl font-bold text-app-text-main mb-3">Initializing</h3>
-                        <span id="ai-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-app-muted/20 text-app-muted border border-app-muted/30">
-                            Awaiting Data
-                        </span>
+                    <div class="flex flex-col flex-1 gap-3 overflow-y-auto pr-2">
                         
-                        <div class="w-full grid grid-cols-2 gap-4 mt-6 border-t border-app-border/50 pt-6">
-                            <div>
-                                <p class="text-xs text-app-text-secondary">AI Confidence</p>
-                                <p id="ai-confidence" class="text-lg font-semibold mt-1 text-app-accent2">--%</p>
+                        <!-- NWQS Overall WQI -->
+                        <div class="p-4 bg-app-bg/50 rounded-xl border border-app-border/50 text-center">
+                            <p class="text-xs text-app-text-secondary uppercase tracking-widest mb-2">Overall WQI Class</p>
+                            <h3 id="ai-prediction" class="text-xl font-bold text-app-text-main mb-2">Initializing</h3>
+                            <span id="ai-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-app-muted/20 text-app-muted border border-app-muted/30">
+                                Awaiting Data
+                            </span>
+                        </div>
+
+                        <!-- Parameter Breakdown Grid -->
+                        <div class="grid grid-cols-3 gap-2">
+                            <!-- pH Status -->
+                            <div class="p-3 bg-app-bg/30 rounded-lg border border-app-border/30 text-center">
+                                <p class="text-[10px] text-app-text-secondary uppercase tracking-wider">pH</p>
+                                <p id="ai-ph-val" class="text-lg font-semibold my-1">--</p>
+                                <p id="ai-ph-status" class="text-[10px] font-medium text-app-muted">--</p>
                             </div>
-                            <div>
-                                <p class="text-xs text-app-text-secondary">Model</p>
-                                <p class="text-sm font-semibold mt-1 text-app-text-main">TF DenseNet</p>
+                            <!-- EC Status -->
+                            <div class="p-3 bg-app-bg/30 rounded-lg border border-app-border/30 text-center">
+                                <p class="text-[10px] text-app-text-secondary uppercase tracking-wider">EC</p>
+                                <p id="ai-ec-val" class="text-lg font-semibold my-1">--</p>
+                                <p id="ai-ec-status" class="text-[10px] font-medium text-app-muted">--</p>
                             </div>
+                            <!-- TSS Status -->
+                            <div class="p-3 bg-app-bg/30 rounded-lg border border-app-border/30 text-center">
+                                <p class="text-[10px] text-app-text-secondary uppercase tracking-wider">TSS</p>
+                                <p id="ai-tss-val" class="text-lg font-semibold my-1">--</p>
+                                <p id="ai-tss-status" class="text-[10px] font-medium text-app-muted">--</p>
+                            </div>
+                        </div>
+
+                        <!-- Marine Life Prediction -->
+                        <div class="p-4 bg-app-bg/50 rounded-xl border border-app-border/50">
+                            <div class="flex items-center gap-2 mb-2">
+                                <i data-lucide="fish" class="w-4 h-4 text-app-accent2"></i>
+                                <p class="text-xs font-semibold uppercase tracking-widest text-app-text-main">Marine Life Viability</p>
+                            </div>
+                            <p id="ai-marine-prediction" class="text-sm leading-relaxed text-app-text-secondary">
+                                Awaiting data to predict environmental stress factors on sensitive aquatic species.
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -274,10 +287,10 @@
                     <div class="absolute -right-4 -top-4 w-24 h-24 bg-app-accent1 opacity-5 rounded-full blur-xl"></div>
                     <div class="flex justify-between items-start mb-4">
                         <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="droplet" class="w-4 h-4"></i> pH Level</h3>
-                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                        <span class="px-3 py-1 rounded-full text-[10px] font-semibold border border-app-border node-badge">Loading Node</span>
                     </div>
                     <div class="flex items-end gap-3 mt-2">
-                        <span id="val-ph" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span id="val-ph" class="text-4xl font-semibold tracking-tight text-app-text-main transition-colors duration-300">--</span>
                         <span class="text-sm text-app-text-secondary mb-1">pH</span>
                     </div>
                 </div>
@@ -287,10 +300,10 @@
                     <div class="absolute -right-4 -top-4 w-24 h-24 bg-app-accent2 opacity-5 rounded-full blur-xl"></div>
                     <div class="flex justify-between items-start mb-4">
                         <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="waves" class="w-4 h-4"></i> Turbidity</h3>
-                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                        <span class="px-3 py-1 rounded-full text-[10px] font-semibold border border-app-border node-badge">Loading Node</span>
                     </div>
                     <div class="flex items-end gap-3 mt-2">
-                        <span id="val-turbidity" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span id="val-turbidity" class="text-4xl font-semibold tracking-tight text-app-text-main transition-colors duration-300">--</span>
                         <span class="text-sm text-app-text-secondary mb-1">NTU</span>
                     </div>
                 </div>
@@ -300,10 +313,10 @@
                     <div class="absolute -right-4 -top-4 w-24 h-24 bg-[#ef4444] opacity-5 rounded-full blur-xl"></div>
                     <div class="flex justify-between items-start mb-4">
                         <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="thermometer" class="w-4 h-4"></i> Temperature</h3>
-                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                        <span class="px-3 py-1 rounded-full text-[10px] font-semibold border border-app-border node-badge">Loading Node</span>
                     </div>
                     <div class="flex items-end gap-3 mt-2">
-                        <span id="val-temp" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span id="val-temp" class="text-4xl font-semibold tracking-tight text-app-text-main transition-colors duration-300">--</span>
                         <span class="text-sm text-app-text-secondary mb-1">°C</span>
                     </div>
                 </div>
@@ -313,10 +326,10 @@
                     <div class="absolute -right-4 -top-4 w-24 h-24 bg-[#eab308] opacity-5 rounded-full blur-xl"></div>
                     <div class="flex justify-between items-start mb-4">
                         <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Elec. Conductivity</h3>
-                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                        <span class="px-3 py-1 rounded-full text-[10px] font-semibold border border-app-border node-badge">Loading Node</span>
                     </div>
                     <div class="flex items-end gap-3 mt-2">
-                        <span id="val-ec" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span id="val-ec" class="text-4xl font-semibold tracking-tight text-app-text-main transition-colors duration-300">--</span>
                         <span class="text-sm text-app-text-secondary mb-1">µS/cm</span>
                     </div>
                 </div>
@@ -326,10 +339,10 @@
                     <div class="absolute -right-4 -top-4 w-24 h-24 bg-[#8b5cf6] opacity-5 rounded-full blur-xl"></div>
                     <div class="flex justify-between items-start mb-4">
                         <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="beaker" class="w-4 h-4"></i> Suspended Solids</h3>
-                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                        <span class="px-3 py-1 rounded-full text-[10px] font-semibold border border-app-border node-badge">Loading Node</span>
                     </div>
                     <div class="flex items-end gap-3 mt-2">
-                        <span id="val-tss" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span id="val-tss" class="text-4xl font-semibold tracking-tight text-app-text-main transition-colors duration-300">--</span>
                         <span class="text-sm text-app-text-secondary mb-1">mg/L</span>
                     </div>
                 </div>
@@ -339,11 +352,54 @@
                     <div class="absolute -right-4 -top-4 w-24 h-24 bg-[#10b981] opacity-5 rounded-full blur-xl"></div>
                     <div class="flex justify-between items-start mb-4">
                         <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2"><i data-lucide="battery" class="w-4 h-4"></i> Vsupply</h3>
-                        <span class="text-xs text-app-muted node-label">Node 1 (Live)</span>
+                        <span class="px-3 py-1 rounded-full text-[10px] font-semibold border border-app-border node-badge">Loading Node</span>
                     </div>
                     <div class="flex items-end gap-3 mt-2">
-                        <span id="val-vsupply" class="text-4xl font-semibold tracking-tight">--</span>
+                        <span id="val-vsupply" class="text-4xl font-semibold tracking-tight text-app-text-main transition-colors duration-300">--</span>
                         <span class="text-sm text-app-text-secondary mb-1">V</span>
+                    </div>
+                </div>
+
+                <!-- NWQS Legend -->
+                <div class="col-span-12 bg-app-card border border-app-border rounded-xl p-6 glass-card relative overflow-hidden mt-2 mb-8">
+                    <h3 class="text-sm font-medium text-app-text-secondary flex items-center gap-2 mb-4">
+                        <i data-lucide="info" class="w-4 h-4"></i> NWQS Malaysia Framework & Marine Life Viability Guide
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <!-- Class I/II -->
+                        <div class="p-4 bg-app-bg/30 rounded-lg border border-app-border/50 border-l-2 border-l-[#10b981]">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-[#10b981]/20 text-[#10b981]">CLASS I / II</span>
+                                <span class="text-xs font-semibold text-app-text-main">Clean / Excellent</span>
+                            </div>
+                            <p class="text-xs text-app-text-secondary leading-relaxed">
+                                <strong class="text-app-text-main">Water Supply:</strong> Practically no treatment to conventional treatment required.<br>
+                                <strong class="text-app-text-main mt-1 inline-block">Marine Life:</strong> Optimal conditions for sensitive aquatic species (Fishery I & II), highly suitable for prawn aquaculture.<br>
+                                <strong class="text-app-text-main mt-1 inline-block">Recreation:</strong> Safe for body contact.
+                            </p>
+                        </div>
+                        <!-- Class III -->
+                        <div class="p-4 bg-app-bg/30 rounded-lg border border-app-border/50 border-l-2 border-l-[#eab308]">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-[#eab308]/20 text-[#eab308]">CLASS III</span>
+                                <span class="text-xs font-semibold text-app-text-main">Moderate</span>
+                            </div>
+                            <p class="text-xs text-app-text-secondary leading-relaxed">
+                                <strong class="text-app-text-main">Water Supply:</strong> Extensive treatment required. Safe for livestock drinking.<br>
+                                <strong class="text-app-text-main mt-1 inline-block">Marine Life:</strong> Suitable for common, tolerant species (Fishery III). Induces moderate stress for sensitive marine life, which may reduce prawn growth rates.
+                            </p>
+                        </div>
+                        <!-- Class IV/V -->
+                        <div class="p-4 bg-app-bg/30 rounded-lg border border-app-border/50 border-l-2 border-l-[#ef4444]">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-[#ef4444]/20 text-[#ef4444]">CLASS IV / V</span>
+                                <span class="text-xs font-semibold text-app-text-main">Polluted / Critical</span>
+                            </div>
+                            <p class="text-xs text-app-text-secondary leading-relaxed">
+                                <strong class="text-app-text-main">Water Supply:</strong> Unsuitable for drinking. Restricted to irrigation (Class IV) or totally unusable (Class V).<br>
+                                <strong class="text-app-text-main mt-1 inline-block">Marine Life:</strong> High stress to critical danger. Severe deviations causing poor moulting or immediate aquatic mortality.
+                            </p>
+                        </div>
                     </div>
                 </div>
 
@@ -378,22 +434,45 @@
                 ec: 'ec',
                 turbidity: 'ntu',
                 tss: 'tss'
+            },
+            // Define thresholds for each parameter to determine coloring on cards
+            thresholds: {
+                ph: { good: [6.5, 8.5], mod: [5.0, 9.0] },
+                temp: { good: [0, 29], mod: [0, 32] }, // Assuming lower temps are generally okay, upper bounds matter more here
+                ec: { good: [0, 1000], mod: [0, 3000] },
+                turbidity: { good: [0, 50], mod: [0, 150] },
+                tss: { good: [0, 50], mod: [0, 150] },
+                vsupply: { good: [3.3, 5.5], mod: [3.0, 6.0] } // Custom threshold for battery/voltage health
             }
         };
 
         const AppState = {
             mainChart: null,
             cachedData: [],
-            activeNodeIndex: 0, // State for the live telemetry cards
+            activeNodeIndex: 0, 
             filters: {
                 metric: 'temp',
-                range: '24', // hours
-                resolution: 'raw' // raw | hourly | daily
+                range: '24', 
+                resolution: 'raw' 
             }
         };
 
+        // Helper to determine tailwind text color class based on threshold
+        function getValueColorClass(id, val) {
+            const t = DASHBOARD_CONFIG.thresholds[id];
+            if (!t) return 'text-app-text-main'; // Fallback if no threshold defined
+
+            if (val >= t.good[0] && val <= t.good[1]) {
+                return 'text-[#10b981]'; // Green
+            } else if (val >= t.mod[0] && val <= t.mod[1]) {
+                return 'text-[#eab308]'; // Yellow
+            } else {
+                return 'text-[#ef4444]'; // Red
+            }
+        }
+
         // ---------------------------------------------------------
-        // 2. TENSORFLOW.JS AI MODEL (NWQS Malaysia)
+        // 2. TENSORFLOW.JS AI MODEL (NWQS Malaysia & Marine Life)
         // ---------------------------------------------------------
         
         let tfModel;
@@ -455,10 +534,6 @@
                 // Train the model
                 await tfModel.fit(xsTensor, ysTensor, {epochs: 15, shuffle: true});
                 
-                // Update UI Status
-                document.getElementById('ai-status').innerText = "Model Active";
-                document.getElementById('ai-status').classList.replace('text-app-muted', 'text-[#10b981]');
-                
                 // Dispose tensors to free memory
                 xsTensor.dispose();
                 ysTensor.dispose();
@@ -468,19 +543,11 @@
 
             } catch(e) {
                 console.error("TF.js Model Failed:", e);
-                document.getElementById('ai-status').innerText = "Model Error";
             }
         }
 
         function runAIPrediction() {
-            // Update the UI explicitly to show which node is being analyzed
-            const nodeLabelEl = document.getElementById('ai-node-label');
-            if (nodeLabelEl) {
-                nodeLabelEl.innerText = `NWQS Malaysia Framework (Node ${AppState.activeNodeIndex + 1})`;
-            }
-
             const badgeNode = document.getElementById('node-badge');
-            badgeNode.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-app-muted/20 text-app-muted border border-app-muted/30';
             badgeNode.innerText = `Node ${AppState.activeNodeIndex + 1}`;
 
             if (!tfModel || !AppState.cachedData || !AppState.cachedData[AppState.activeNodeIndex]) return;
@@ -490,48 +557,97 @@
             // Handle offline/no-data nodes
             if (!nodeData || !nodeData.length) {
                 document.getElementById('ai-prediction').innerText = "No Data";
-                document.getElementById('ai-confidence').innerText = "--%";
                 const badge = document.getElementById('ai-badge');
                 badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-app-muted/20 text-app-muted border border-app-muted/30';
                 badge.innerText = "Awaiting Data";
+                
+                // Clear Sub-Metrics
+                ['ph', 'ec', 'tss'].forEach(param => {
+                    document.getElementById(`ai-${param}-val`).innerText = '--';
+                    document.getElementById(`ai-${param}-status`).innerText = '--';
+                    document.getElementById(`ai-${param}-status`).className = 'text-[10px] font-medium text-app-muted';
+                });
+                document.getElementById('ai-marine-prediction').innerText = 'Awaiting data to predict environmental stress factors on sensitive aquatic species.';
                 return;
             }
             
             const latest = nodeData[nodeData.length - 1];
             
-            // Extract parameters safely
+            // Extract parameters
             const temp = parseFloat(latest[DASHBOARD_CONFIG.columns.temp]) || 25;
             const ph = parseFloat(latest[DASHBOARD_CONFIG.columns.ph]) || 7;
             const ec = parseFloat(latest[DASHBOARD_CONFIG.columns.ec]) || 500;
             const turb = parseFloat(latest[DASHBOARD_CONFIG.columns.turbidity]) || 10;
             const tss = parseFloat(latest[DASHBOARD_CONFIG.columns.tss]) || 10;
 
-            // Run Prediction (Normalized exactly like the training data)
+            // 1. Run Neural Network Prediction for Overall WQI
             const input = tf.tensor2d([[temp/50, ph/14, ec/5000, turb/1000, tss/1000]]);
             const prediction = tfModel.predict(input);
             const probs = prediction.dataSync();
             
-            // Find max probability
             const maxIdx = probs.indexOf(Math.max(...probs));
-            const confidence = (probs[maxIdx] * 100).toFixed(1) + '%';
             
-            const classes = ['Class I/II (Clean)', 'Class III (Moderate)', 'Class IV/V (Polluted)'];
+            const classes = ['Class I/II', 'Class III', 'Class IV/V'];
             const wqiClass = classes[maxIdx];
             
-            // Update UI
+            // Update Overall WQI UI
             document.getElementById('ai-prediction').innerText = wqiClass;
-            document.getElementById('ai-confidence').innerText = confidence;
-            
             const badge = document.getElementById('ai-badge');
+            
             if (maxIdx === 0) { // Clean
                 badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/30';
-                badge.innerText = "Excellent Quality";
+                badge.innerText = "Clean";
             } else if (maxIdx === 1) { // Moderate
                 badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-[#eab308]/20 text-[#eab308] border border-[#eab308]/30';
-                badge.innerText = "Monitoring Advised";
+                badge.innerText = "Moderate";
             } else { // Polluted
                 badge.className = 'px-3 py-1 rounded-full text-xs font-semibold bg-[#ef4444]/20 text-[#ef4444] border border-[#ef4444]/30';
-                badge.innerText = "Critical Warning";
+                badge.innerText = "Polluted";
+            }
+
+            // 2. Perform Sub-Parameter NWQS Analytics
+            const updateSubMetric = (id, val, thresholds) => {
+                document.getElementById(`ai-${id}-val`).innerText = val.toFixed(1);
+                const statusEl = document.getElementById(`ai-${id}-status`);
+                
+                if (val >= thresholds.good[0] && val <= thresholds.good[1]) {
+                    statusEl.innerText = 'Optimal';
+                    statusEl.className = 'text-[10px] font-medium text-[#10b981]';
+                } else if (val >= thresholds.mod[0] && val <= thresholds.mod[1]) {
+                    statusEl.innerText = 'Acceptable';
+                    statusEl.className = 'text-[10px] font-medium text-[#eab308]';
+                } else {
+                    statusEl.innerText = 'Harmful';
+                    statusEl.className = 'text-[10px] font-medium text-[#ef4444]';
+                }
+            };
+
+            // NWQS Thresholds mapped
+            updateSubMetric('ph', ph, DASHBOARD_CONFIG.thresholds.ph);
+            updateSubMetric('ec', ec, DASHBOARD_CONFIG.thresholds.ec);
+            updateSubMetric('tss', tss, DASHBOARD_CONFIG.thresholds.tss);
+
+            // 3. Marine Life Viability Logic (Heuristic based on NWQS parameter convergence)
+            const marineTextEl = document.getElementById('ai-marine-prediction');
+            
+            // Calculate an aggregate stress score based on parameters outside Class II/III
+            let stressScore = 0;
+            if (ph < 6.0 || ph > 8.5) stressScore += 2;
+            if (ph < 5.0 || ph > 9.0) stressScore += 2; // Cumulative
+            if (tss > 50) stressScore += 1;
+            if (tss > 150) stressScore += 2;
+            if (temp > 30) stressScore += 1;
+            if (temp > 32) stressScore += 2;
+            if (ec > 1000) stressScore += 1;
+
+            if (stressScore === 0) {
+                marineTextEl.innerHTML = "<span class='text-[#10b981] font-medium'>Optimal Conditions:</span> Water parameters are highly favorable for sensitive marine life, including prawn aquaculture and local fish species.";
+            } else if (stressScore <= 3) {
+                marineTextEl.innerHTML = "<span class='text-[#eab308] font-medium'>Moderate Stress:</span> Conditions are acceptable, but minor deviations in parameters (likely pH or TSS) may reduce prawn growth rates or stress sensitive fish.";
+            } else if (stressScore <= 6) {
+                marineTextEl.innerHTML = "<span class='text-[#ef4444] font-medium'>High Stress Warning:</span> Toxic thresholds approaching. Prolonged exposure will likely result in significantly reduced feeding, poor moulting in prawns, and potential fish kills.";
+            } else {
+                marineTextEl.innerHTML = "<span class='text-[#ef4444] font-bold'>Critical Danger:</span> Severe parameter deviations. High probability of immediate aquatic mortality. Immediate remediation required.";
             }
 
             input.dispose();
@@ -545,7 +661,6 @@
         function parseCSV(csvText) {
             if (!csvText) return [];
             
-            // This safely splits lines regardless of OS formatting
             const lines = csvText.trim().split(/\r?\n/);
             if (lines.length < 2) return [];
             
@@ -575,19 +690,16 @@
         function filterAndAggregate(nodeData, metric, range, resolution) {
             if (!nodeData || !nodeData.length) return [];
 
-            // Parse valid rows
             let validPoints = nodeData.reduce((acc, row) => {
                 const val = parseFloat(row[DASHBOARD_CONFIG.columns[metric]]);
                 const tsStr = row[DASHBOARD_CONFIG.columns.timestamp];
                 let ts;
                 
-                // Try parsing the date
                 if(tsStr) {
                     ts = new Date(tsStr);
                     if (isNaN(ts.getTime())) {
                        const parts = tsStr.split(/[\s/:]/);
                        if(parts.length >= 6) {
-                            // Assuming format MM/DD/YYYY HH:MM:SS
                             ts = new Date(parts[2], parts[0]-1, parts[1], parts[3], parts[4], parts[5]);
                        }
                     }
@@ -601,14 +713,12 @@
 
             if (!validPoints.length) return [];
 
-            // Apply Range Filter
             if (range !== 'all') {
                 const latestTime = Math.max(...validPoints.map(d => d.ts.getTime()));
                 const cutoffTime = latestTime - (parseInt(range) * 60 * 60 * 1000);
                 validPoints = validPoints.filter(d => d.ts.getTime() >= cutoffTime);
             }
 
-            // Apply Resolution Filter
             if (resolution === 'raw') return validPoints;
 
             const buckets = {};
@@ -664,7 +774,6 @@
 
                 if (!badgeEl || !timeEl || !dotEl) continue;
 
-                // Handle missing data
                 if (!nodeData || nodeData.length === 0) {
                     badgeEl.innerText = 'Offline';
                     badgeEl.className = 'text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border text-[#ef4444] bg-[#ef4444]/10 border-[#ef4444]/20';
@@ -673,7 +782,6 @@
                     continue;
                 }
 
-                // Extract and parse latest timestamp
                 const latest = nodeData[nodeData.length - 1];
                 const tsStr = latest[DASHBOARD_CONFIG.columns.timestamp];
                 let ts;
@@ -694,7 +802,6 @@
                     continue;
                 }
 
-                // Compare timestamp against current sync time
                 const diffMs = Math.max(0, syncTime.getTime() - ts.getTime());
                 const oneMinMs = 60 * 1000;
                 const twoHoursMs = 2 * 60 * 60 * 1000;
@@ -721,50 +828,53 @@
                     dotClass = 'bg-[#ef4444]';
                 }
 
-                // Apply UI Updates
                 badgeEl.innerText = statusText;
                 badgeEl.className = `text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border ${colorClass} ${bgClass}`;
                 dotEl.className = `w-2 h-2 rounded-full ${dotClass}`;
                 
-                // Format time string
                 timeEl.innerText = ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + " | " +  ts.toLocaleDateString([], { month: 'short', day: 'numeric' });
             }
         }
 
         function updateTelemetryCards() {
-            // Update the card labels to reflect active node
-            const nodeLabelElems = document.querySelectorAll('.node-label');
-            nodeLabelElems.forEach(el => {
-                el.innerText = `Node ${AppState.activeNodeIndex + 1} (Live)`;
+            const nodeBadgeElems = document.querySelectorAll('.node-badge');
+            nodeBadgeElems.forEach(el => {
+                el.innerText = `Node ${AppState.activeNodeIndex + 1}`;
             });
 
-            // Get data for the currently selected node
             const primaryNodeData = AppState.cachedData[AppState.activeNodeIndex];
             
-            // If no data exists yet, output dashes
             if (!primaryNodeData || !primaryNodeData.length) {
                 const ids = ['ph', 'turbidity', 'temp', 'ec', 'tss', 'vsupply'];
                 ids.forEach(id => {
                     const el = document.getElementById(`val-${id}`);
-                    if (el) el.innerText = '--';
+                    if (el) {
+                        el.innerText = '--';
+                        // Reset to default color
+                        el.className = 'text-4xl font-semibold tracking-tight text-app-text-main transition-colors duration-300';
+                    }
                 });
             } else {
-                // Get latest valid data point
                 const latest = primaryNodeData[primaryNodeData.length - 1];
                 
-                const formatValue = (colKey) => {
-                    const val = parseFloat(latest[DASHBOARD_CONFIG.columns[colKey]]);
-                    return !isNaN(val) ? val.toFixed(2) : '--';
-                };
-
                 const ids = ['ph', 'turbidity', 'temp', 'ec', 'tss', 'vsupply'];
                 ids.forEach(id => {
                     const el = document.getElementById(`val-${id}`);
-                    if (el) el.innerText = formatValue(id);
+                    if (el) {
+                        const val = parseFloat(latest[DASHBOARD_CONFIG.columns[id]]);
+                        if (!isNaN(val)) {
+                            el.innerText = val.toFixed(2);
+                            // Apply color coding based on threshold
+                            const colorClass = getValueColorClass(id, val);
+                            el.className = `text-4xl font-semibold tracking-tight transition-colors duration-300 ${colorClass}`;
+                        } else {
+                            el.innerText = '--';
+                            el.className = 'text-4xl font-semibold tracking-tight text-app-text-main transition-colors duration-300';
+                        }
+                    }
                 });
             }
             
-            // Trigger AI Prediction on Card Update
             runAIPrediction();
         }
 
@@ -773,17 +883,14 @@
 
             const { metric, range, resolution } = AppState.filters;
 
-            // Process each node's data
             const processedNodes = AppState.cachedData.map(nodeData => 
                 filterAndAggregate(nodeData, metric, range, resolution)
             );
 
-            // Establish unified master timeline
             const uniqueTimestamps = new Set();
             processedNodes.forEach(nodeArr => nodeArr.forEach(d => uniqueTimestamps.add(d.ts.getTime())));
             const masterTimeline = Array.from(uniqueTimestamps).sort((a, b) => a - b);
 
-            // Format axis labels
             const labels = masterTimeline.map(ts => {
                 const d = new Date(ts);
                 if (resolution === 'daily') return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
@@ -791,7 +898,6 @@
                 return d.toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' });
             });
 
-            // Map datasets to unified timeline
             const datasets = processedNodes.map((nodeArr, i) => {
                 const dataMap = new Map(nodeArr.map(d => [d.ts.getTime(), d.val]));
                 const alignedData = masterTimeline.map(ts => dataMap.has(ts) ? dataMap.get(ts) : null);
@@ -829,7 +935,6 @@
 
             const now = new Date();
 
-            // Update UI
             updateNodeStatuses(now);
             updateTelemetryCards();
             updateChartDisplay();
@@ -845,9 +950,8 @@
 
         document.addEventListener("DOMContentLoaded", () => {
             initMainChart();
-            initTFModel(); // Load and train AI in background
+            initTFModel(); 
             
-            // Bind Filter Events for Chart
             document.getElementById('chart-metric-selector').addEventListener('change', (e) => {
                 AppState.filters.metric = e.target.value;
                 document.getElementById('chart-title-metric').innerText = e.target.options[e.target.selectedIndex].text;
@@ -864,13 +968,11 @@
                 updateChartDisplay(); 
             });
 
-            // Bind Node Selector for Telemetry Cards
             document.getElementById('active-node-selector').addEventListener('change', (e) => {
                 AppState.activeNodeIndex = parseInt(e.target.value);
                 updateTelemetryCards(); 
             });
 
-            // Bind Refresh Button
             document.getElementById('force-refresh-btn').addEventListener('click', async (e) => {
                 const btn = e.currentTarget;
                 const icon = document.getElementById('refresh-icon');
@@ -886,7 +988,6 @@
                 btn.disabled = false;
             });
 
-            // Kick off initial sync & interval
             syncDashboardData();
             setInterval(syncDashboardData, DASHBOARD_CONFIG.refreshInterval);
         });
