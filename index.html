@@ -421,10 +421,10 @@
             refreshInterval: 10000, // 10 seconds
             chartColors: ['#6990F2', '#588CC4', '#10b981', '#8b5cf6'],
             sheetUrls: [
-                'https://docs.google.com/spreadsheets/d/e/2PACX-1vRFKFKU2PhwYFXvE3OG7JHhG6JLMBYroVmXJ3yX8Shuf5OpOJT-S7YtavspJiwfpq4K6tXKkiWb6_of/pub?gid=0&single=true&output=csv', // P1
-                'https://docs.google.com/spreadsheets/d/e/2PACX-1vTuukD0C8PQhGiU1ckSKlCe8p_7CXL9M5iV9EiALhVj8aNsRJ1_c5Muur0FyIOP6VnU9DBKNrAGJu4e/pub?gid=0&single=true&output=csv', // P2
-                'https://docs.google.com/spreadsheets/d/e/2PACX-1vTqPhitjf7o0139ms1ym2tDKFveuEZc6BI3PHvNLi12-QHe5_Gqc_dnmChmhkkyY3alZ_WEFz_peZKC/pub?gid=0&single=true&output=csv', // P3
-                'https://docs.google.com/spreadsheets/d/e/2PACX-1vQWU5MBW0yYFy6v4Vmzlc4lDB1YvDJbTGeEOM6NJ2MmnFqgF8H3UFjNnolRMQe-MkUzjG8nw3ToHGzr/pub?gid=0&single=true&output=csv' // P4
+                'https://docs.google.com/spreadsheets/d/e/2PACX-1vS2k-lefdmnmy5y6wqm5AagEVWPPC5u2P1CNRfkU8sNAetnhDJI3xEGifpsy2rJZPUth3lkdzq8RY1p/pub?gid=491798666&single=true&output=csv', // P1
+                'https://docs.google.com/spreadsheets/d/e/2PACX-1vREtuRDH-SdZj09Tqv5WUdw-9FoQuu25gB7X0eMHC8SdENpBBnBr1xyJoP4c7reITno6lg2mxnjcbfW/pub?gid=1189659492&single=true&output=csv', // P2
+                'https://docs.google.com/spreadsheets/d/e/2PACX-1vT633sWw6jnTlookKHzAeevwCpZBvIOeupcT3rQqFOLRt_CIyVKhClfX5-El-rJ0Jf7POyFumLAvy_K/pub?gid=1973154617&single=true&output=csv', // P3
+                'https://docs.google.com/spreadsheets/d/e/2PACX-1vSKejxwfASkTfkx2Xk5adyBnnUEJ1ghzp4UOdFV6K_a14do4MLqSumeIbtH27ITZ7NxC2MNYgihPGcg/pub?gid=735256646&single=true&output=csv' // P4
             ],
             columns: {
                 timestamp: 'timestamp',
@@ -658,31 +658,99 @@
         // 3. DATA LAYER (Fetch, Parse, Aggregate)
         // ---------------------------------------------------------
 
+        // Parse CSV while respecting quoted fields, commas, and embedded newlines.
         function parseCSV(csvText) {
-            if (!csvText) return [];
-            
-            const lines = csvText.trim().split(/\r?\n/);
-            if (lines.length < 2) return [];
-            
-            const headers = lines[0].split(',').map(h => h.trim());
-            
-            return lines.slice(1).map(line => {
-                const values = line.split(',');
+            if (!csvText || !csvText.trim()) return [];
+
+            const rows = [];
+            let row = [];
+            let field = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < csvText.length; i++) {
+                const ch = csvText[i];
+
+                if (ch === '"') {
+                    if (inQuotes && csvText[i + 1] === '"') {
+                        field += '"';
+                        i++;
+                    } else {
+                        inQuotes = !inQuotes;
+                    }
+                } else if (ch === ',' && !inQuotes) {
+                    row.push(field.trim());
+                    field = '';
+                } else if ((ch === '\n' || ch === '\r') && !inQuotes) {
+                    if (ch === '\r' && csvText[i + 1] === '\n') i++;
+                    row.push(field.trim());
+                    if (row.some(value => value !== '')) rows.push(row);
+                    row = [];
+                    field = '';
+                } else {
+                    field += ch;
+                }
+            }
+
+            if (field.length || row.length) {
+                row.push(field.trim());
+                if (row.some(value => value !== '')) rows.push(row);
+            }
+
+            if (rows.length < 2) return [];
+
+            const headers = rows[0].map(h => h.trim().replace(/^\uFEFF/, ''));
+            return rows.slice(1).map(values => {
                 return headers.reduce((obj, header, index) => {
-                    obj[header] = values[index] ? values[index].trim() : null;
+                    obj[header] = values[index] !== undefined && values[index] !== ''
+                        ? values[index]
+                        : null;
                     return obj;
                 }, {});
             });
         }
 
-        async function fetchNodeData(url) {
+        async function fetchNodeData(url, nodeIndex = -1) {
             try {
-                const response = await fetch(url); 
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const response = await fetch(url, {
+                    method: 'GET',
+                    cache: 'no-store'
+                });
+
+                // A Google sign-in redirect is the common cause of the reported
+                // CORS error. JavaScript cannot bypass this; the sheet must be
+                // published for anonymous access and the fresh CSV URL used.
+                if (response.url && /accounts\.google\.com/i.test(response.url)) {
+                    throw new Error(
+                        `Node ${nodeIndex + 1}: Google redirected to sign-in. ` +
+                        'Republish this worksheet via File > Share > Publish to web, ' +
+                        'then replace its URL in DASHBOARD_CONFIG.sheetUrls.'
+                    );
+                }
+
+                if (!response.ok) {
+                    throw new Error(`Node ${nodeIndex + 1}: HTTP ${response.status}`);
+                }
+
                 const text = await response.text();
-                return parseCSV(text);
+
+                if (/<html[\s>]/i.test(text) ||
+                    /accounts\.google\.com/i.test(text)) {
+                    throw new Error(
+                        `Node ${nodeIndex + 1}: Expected CSV but received HTML. ` +
+                        'Check that the worksheet is published publicly and the URL is current.'
+                    );
+                }
+
+                const parsed = parseCSV(text);
+                if (!parsed.length) {
+                    throw new Error(
+                        `Node ${nodeIndex + 1}: No CSV data rows parsed. Check the published URL and worksheet.`
+                    );
+                }
+
+                return parsed;
             } catch (error) {
-                console.error('Failed to fetch node data:', error);
+                console.error(`Failed to fetch node ${nodeIndex + 1}:`, error);
                 return [];
             }
         }
@@ -930,7 +998,7 @@
             statusEl.style.opacity = '0.5';
             timeEl.innerText = 'Syncing...';
 
-            const promises = DASHBOARD_CONFIG.sheetUrls.map(url => fetchNodeData(url));
+            const promises = DASHBOARD_CONFIG.sheetUrls.map((url, index) => fetchNodeData(url, index));
             AppState.cachedData = await Promise.all(promises);
 
             const now = new Date();
