@@ -63,6 +63,11 @@
             -moz-appearance: none;
             appearance: none;
         }
+
+        .theme-map-dark {
+            filter: invert(100%) hue-rotate(180deg) brightness(85%) contrast(90%);
+            transition: filter 0.3s ease;
+        }
     </style>
 </head>
 <body class="bg-app-bg text-app-text-main font-sans h-screen w-full flex overflow-hidden selection:bg-app-accent1 selection:text-white">
@@ -210,7 +215,7 @@
                     </div>
                 </div>
 
-                <!-- Active Node Selector & Status Section -->
+              <!-- Active Node Selector & Status Section -->
                 <div class="col-span-12 flex justify-between items-end mt-2 mb-0 border-b border-app-border/50 pb-4">
                     <div>
                         <h2 class="text-lg font-medium flex items-center gap-2">
@@ -219,7 +224,15 @@
                         </h2>
                         <p class="text-sm text-app-text-secondary mt-1">Select a node to view its most recent parameters</p>
                     </div>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-3">
+                        <!-- Map Theme Toggle Button -->
+                        <button id="map-theme-toggle" class="flex items-center gap-2 bg-app-bg border border-app-border text-sm rounded-md px-3 py-1.5 text-app-text-main hover:border-app-accent1 transition-colors cursor-pointer group">
+                            <i data-lucide="moon" id="map-theme-icon" class="w-4 h-4 text-app-text-secondary group-hover:text-app-text-main transition-colors"></i>
+                            <span class="hidden sm:inline text-app-text-secondary group-hover:text-app-text-main transition-colors">Map Theme</span>
+                        </button>
+                        
+                        <div class="h-6 w-px bg-app-border/50"></div> <!-- Divider -->
+
                         <i data-lucide="server" class="w-4 h-4 text-app-muted"></i>
                         <select id="active-node-selector" class="bg-app-bg border border-app-border text-sm rounded-md pl-3 pr-8 py-1.5 text-app-text-main focus:outline-none focus:border-app-accent1 transition-colors cursor-pointer">
                             <option value="0" selected>Node 1</option>
@@ -230,54 +243,95 @@
                     </div>
                 </div>
 
-                <!-- Node Status Overview Row -->
-                <div class="col-span-12 grid grid-cols-2 lg:grid-cols-4 gap-4 mb-2">
-                    <!-- Status Card 1 -->
-                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex justify-between items-center">
-                        <div>
-                            <div class="flex items-center gap-2 mb-1">
-                                <span id="status-dot-0" class="w-2 h-2 rounded-full bg-app-muted"></span>
-                                <span class="text-sm font-medium">Node 1</span>
+        
+
+              <!-- Node Status Overview Row -->
+                <div class="col-span-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-2">
+                    <!-- Status Card 1: Semenggok -->
+                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex flex-col gap-3">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span id="status-dot-0" class="w-2 h-2 rounded-full bg-app-muted"></span>
+                                    <span class="text-sm font-medium truncate" title="Stesen Perikanan Darat Semenggok">Node 1 (Semenggok)</span>
+                                </div>
+                                <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-0">--:--</span></div>
                             </div>
-                            <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-0">--:--</span></div>
+                            <span id="status-badge-0" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
                         </div>
-                        <span id="status-badge-0" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
+                        <div class="w-full h-32 rounded overflow-hidden border border-app-border/50">
+                            <!-- Dummy GPS: 1.3985° N, 110.3195° E -->
+                            <!-- <iframe width="100%" height="100%" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="https://www.openstreetmap.org/export/embed.html?bbox=110.3145%2C1.3935%2C110.3245%2C1.4035&amp;layer=hot&amp;marker=1.3985%2C110.3195"></iframe> -->
+                            <iframe class="map-iframe theme-map-dark" width="100%" height="100%" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="https://www.openstreetmap.org/export/embed.html?bbox=110.3145%2C1.3935%2C110.3245%2C1.4035&amp;layer=hot&amp;marker=1.3985%2C110.3195"></iframe>
+                        </div>
+                        <div class="text-[9px] text-app-text-secondary leading-tight mt-[-4px]">
+                            Stesen Perikanan Darat Semenggok, Jalan Kuching - Serian
+                        </div>
                     </div>
 
-                    <!-- Status Card 2 -->
-                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex justify-between items-center">
-                        <div>
-                            <div class="flex items-center gap-2 mb-1">
-                                <span id="status-dot-1" class="w-2 h-2 rounded-full bg-app-muted"></span>
-                                <span class="text-sm font-medium">Node 2</span>
+                    <!-- Status Card 2: SDEC -->
+                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex flex-col gap-3">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span id="status-dot-1" class="w-2 h-2 rounded-full bg-app-muted"></span>
+                                    <span class="text-sm font-medium truncate" title="SDEC CoE OpenLab & IoT Testbeds">Node 2 (SDEC Rampangi)</span>
+                                </div>
+                                <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-1">--:--</span></div>
                             </div>
-                            <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-1">--:--</span></div>
+                            <span id="status-badge-1" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
                         </div>
-                        <span id="status-badge-1" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
+                        <div class="w-full h-32 rounded overflow-hidden border border-app-border/50">
+                            <!-- Dummy GPS: 1.6215° N, 110.3155° E -->
+                            <!-- <iframe width="100%" height="100%" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="https://www.openstreetmap.org/export/embed.html?bbox=110.3105%2C1.6165%2C110.3205%2C1.6265&amp;layer=hot&amp;marker=1.6215%2C110.3155"></iframe> -->
+                            <iframe class="map-iframe theme-map-dark" width="100%" height="100%" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="https://www.openstreetmap.org/export/embed.html?bbox=110.3105%2C1.6165%2C110.3205%2C1.6265&amp;layer=hot&amp;marker=1.6215%2C110.3155"></iframe>
+
+                        </div>
+                        <div class="text-[9px] text-app-text-secondary leading-tight mt-[-4px]">
+                            SDEC CoE OpenLab, Block 9, Jalan Sultan Tengah
+                        </div>
                     </div>
 
-                    <!-- Status Card 3 -->
-                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex justify-between items-center">
-                        <div>
-                            <div class="flex items-center gap-2 mb-1">
-                                <span id="status-dot-2" class="w-2 h-2 rounded-full bg-app-muted"></span>
-                                <span class="text-sm font-medium">Node 3</span>
+                    <!-- Status Card 3: Samarahan Agriculture -->
+                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex flex-col gap-3">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span id="status-dot-2" class="w-2 h-2 rounded-full bg-app-muted"></span>
+                                    <span class="text-sm font-medium truncate" title="Samarahan Divisional Agriculture Office">Node 3 (Agri. Dept)</span>
+                                </div>
+                                <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-2">--:--</span></div>
                             </div>
-                            <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-2">--:--</span></div>
+                            <span id="status-badge-2" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
                         </div>
-                        <span id="status-badge-2" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
+                        <div class="w-full h-32 rounded overflow-hidden border border-app-border/50">
+                            <!-- Dummy GPS: 1.4578° N, 110.4275° E -->
+                            <iframe class="map-iframe theme-map-dark" width="100%" height="100%" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="https://www.openstreetmap.org/export/embed.html?bbox=110.4225%2C1.4528%2C110.4325%2C1.4628&amp;layer=hot&amp;marker=1.4578%2C110.4275"></iframe>
+                        </div>
+                        <div class="text-[9px] text-app-text-secondary leading-tight mt-[-4px]">
+                            Samarahan Divisional Agriculture Office
+                        </div>
                     </div>
 
-                    <!-- Status Card 4 -->
-                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex justify-between items-center">
-                        <div>
-                            <div class="flex items-center gap-2 mb-1">
-                                <span id="status-dot-3" class="w-2 h-2 rounded-full bg-app-muted"></span>
-                                <span class="text-sm font-medium">Node 4</span>
+                    <!-- Status Card 4: UiTM Samarahan -->
+                    <div class="bg-app-card border border-app-border rounded-lg p-3 flex flex-col gap-3">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span id="status-dot-3" class="w-2 h-2 rounded-full bg-app-muted"></span>
+                                    <span class="text-sm font-medium truncate" title="Blok N UiTM Sarawak Kampus Samarahan">Node 4 (UiTM Blok N)</span>
+                                </div>
+                                <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-3">--:--</span></div>
                             </div>
-                            <div class="text-[10px] text-app-text-secondary">Last seen: <span id="status-time-3">--:--</span></div>
+                            <span id="status-badge-3" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
                         </div>
-                        <span id="status-badge-3" class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border border-app-border text-app-muted bg-app-bg">Waiting</span>
+                        <div class="w-full h-32 rounded overflow-hidden border border-app-border/50">
+                            <!-- Dummy GPS: 1.4605° N, 110.4292° E -->
+                            <iframe class="map-iframe theme-map-dark" width="100%" height="100%" frameborder="0" scrolling="no" marginheight="0" marginwidth="0" src="https://www.openstreetmap.org/export/embed.html?bbox=110.4242%2C1.4555%2C110.4342%2C1.4655&amp;layer=hot&amp;marker=1.4605%2C110.4292"></iframe>
+                        </div>
+                        <div class="text-[9px] text-app-text-secondary leading-tight mt-[-4px]">
+                            Blok N UiTM Sarawak Kampus Samarahan
+                        </div>
                     </div>
                 </div>
 
@@ -990,6 +1044,9 @@
             AppState.mainChart.update();
         }
 
+
+
+
         async function syncDashboardData() {
             const statusEl = document.getElementById('sync-status');
             const timeEl = document.getElementById('sync-time');
@@ -1054,6 +1111,26 @@
                 
                 icon.classList.remove('animate-spin');
                 btn.disabled = false;
+            });
+
+            // Map Theme Toggle Logic
+            let isMapDark = true;
+            document.getElementById('map-theme-toggle').addEventListener('click', () => {
+                isMapDark = !isMapDark;
+                
+                // Toggle the CSS filter on all maps
+                document.querySelectorAll('.map-iframe').forEach(map => {
+                    if (isMapDark) {
+                        map.classList.add('theme-map-dark');
+                    } else {
+                        map.classList.remove('theme-map-dark');
+                    }
+                });
+                
+                // Update the button icon (Moon for dark, Sun for light)
+                const iconEl = document.getElementById('map-theme-icon');
+                iconEl.setAttribute('data-lucide', isMapDark ? 'moon' : 'sun');
+                lucide.createIcons(); 
             });
 
             syncDashboardData();
